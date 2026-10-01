@@ -29,6 +29,7 @@
   "scripts": {
     "lint": "oxlint",
     "lint:fix": "oxlint --fix"
+    "build": "tsc"
   },
   "dependencies": {
     "@zcode/model-option-map": "workspace:*",
