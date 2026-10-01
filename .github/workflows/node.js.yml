@@ -24,6 +24,7 @@ jobs:
         node-version: 24
         cache: 'pnpm'
     - run: pnpm bootstrap
+    - run: pnpm build
     - run: pnpm build:zcode --base-url https://downloads.example.com/zcode/
 
     - name: Upload to release
