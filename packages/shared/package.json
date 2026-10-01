@@ -43,6 +43,7 @@
   "scripts": {
     "lint": "oxlint",
     "lint:fix": "oxlint --fix"
+    "build": "tsc"
   },
   "dependencies": {
     "@napi-rs/keyring": "2.1.2",
