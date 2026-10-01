@@ -1,0 +1,48 @@
+# This workflow will do a clean installation of node dependencies, cache/restore them, build the source code and run tests across different versions of node
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-nodejs
+
+name: Node.js CI
+
+on:
+  push:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v6
+    - name: Use Node.js 24
+      uses: actions/setup-node@v4
+      with:
+        node-version: 24
+        cache: 'pnpm'
+    - run: pnpm bootstrap
+    - run: pnpm build
+    - run: pnpm build:zcode --base-url https://downloads.example.com/zcode/
+
+    - name: Generate release tag
+      id: tag
+      if: (!cancelled())
+      run: |
+        echo "release_tag=$(grep -m1 '"version" *:' "package.json" | sed -E 's/.*"(.*)".*/\1/')" >> $GITHUB_OUTPUT
+        touch release.txt
+        echo "status=success" >> $GITHUB_OUTPUT
+
+    - name: Upload to release
+      uses: softprops/action-gh-release@master
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        name: v${{ steps.tag.outputs.release_tag }}
+        tag_name: v${{ steps.tag.outputs.release_tag }}
+        body_path: release.txt
+        files: dist/zcode/releases/${{ steps.tag.outputs.release_tag }}/zcode-${{ steps.tag.outputs.release_tag }}.tar.gz
+        prerelease: true    
+
