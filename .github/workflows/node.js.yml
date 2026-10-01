@@ -23,10 +23,10 @@ jobs:
       with:
         node-version: 24
         cache: 'pnpm'
-    - run: pnpm install
+    - run: pnpm bootstrap
     - run: pnpm build:zcode --base-url https://downloads.example.com/zcode/
 
-    - name: Upload apk to release
+    - name: Upload to release
       uses: softprops/action-gh-release@master
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
