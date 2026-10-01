@@ -28,7 +28,7 @@
   },
   "scripts": {
     "lint": "oxlint",
-    "lint:fix": "oxlint --fix"
+    "lint:fix": "oxlint --fix",
     "build": "tsc"
   },
   "dependencies": {
