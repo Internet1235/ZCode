@@ -353,7 +353,10 @@ function createWebPlatform(): IPlatformService {
 }
 
 function resolveDefaultWsOrigin(): string {
-  return `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}`;
+  // 与 HTML 资源共用基路径，避免 API/WS 绕过统一网关。
+  const base = new URL(document.baseURI);
+  base.protocol = base.protocol === "https:" ? "wss:" : "ws:";
+  return base.href.replace(/\/$/, "");
 }
 
 async function resolveWebBootstrap(): Promise<WebBootstrapResult> {
@@ -368,7 +371,7 @@ async function resolveWebBootstrap(): Promise<WebBootstrapResult> {
   }
 
   try {
-    const response = await fetch("/api/server-info", {
+    const response = await fetch(new URL("api/server-info", document.baseURI), {
       cache: "no-store",
     });
     if (!response.ok) {

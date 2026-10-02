@@ -96,7 +96,7 @@ zcode --web --help
 
 In Web mode, it uses the current directory as the workspace, listens on `127.0.0.1` without token authentication by default, selects an available port, and opens a browser. Use the URL printed in the terminal and press `Ctrl+C` to stop the service. For LAN access, use `--host 0.0.0.0`; listening on a non-local address generates an access token by default. Use the token-bearing URL printed in the terminal. Set a token with `--token`, or disable token authentication with `--no-token`.
 
-When starting the general Web service's HTTP entry directly, configure API/WebSocket authentication with `ZCODE_SERVER_AUTH_TOKEN`. When creating the service programmatically, use the `authToken` option.
+When starting the general Web service's HTTP entry directly, configure direct TCP API/WebSocket authentication with `ZCODE_SERVER_AUTH_TOKEN`. When creating the service programmatically, use the `authToken` option. If the service also listens on a Unix Socket for the fnOS unified gateway, that Socket listener does not use the ZCode token; fnOS controls access before forwarding the request.
 
 See Packaging below for build instructions. `pnpm build:zcode` only creates the distribution; it does not replace an existing `zcode` on `PATH`. If the command still points to an older installation or another checkout, check it with `command -v zcode` on macOS / Linux or `where.exe zcode` on Windows.
 
@@ -190,6 +190,8 @@ node dist/zcode/debug/zcode/bin/zcode.mjs --web \
 ```
 
 Open `http://127.0.0.1:3030` to validate the complete flow, with one backend serving the Web pages and running the Agent. The port must be available; if `pnpm dev:web` is already running, choose another `--port`.
+
+The fnOS unified gateway can forward to the ZCode Unix Socket. Set `ZCODE_SERVER_SOCKET` together with `PORT`, point the gateway at that Socket, and access the configured gateway URL without `?token=...`. The gateway performs login and access checks; ZCode does not use the forwarded `X-Trim-*` headers as application login identity. A configured `ZCODE_SERVER_AUTH_TOKEN` protects direct TCP access only. Keep the Socket inaccessible to untrusted local users and processes.
 
 ## Repository Structure
 

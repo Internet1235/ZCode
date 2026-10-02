@@ -39,6 +39,8 @@ export default defineConfig(({ mode }) => {
   const zaiOAuthClientId = resolveZaiOAuthClientId(endpointEnv);
 
   return {
+    // 入口先补齐尾斜杠，相对资源可同时用于网关规范路径和根路径直连。
+    base: "./",
     plugins: [pdfJsCMapsPlugin(), react(), tailwindcss(), thirdPartyNoticesVitePlugin()],
     resolve: {
       alias: {

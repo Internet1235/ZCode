@@ -95,6 +95,10 @@ zcode --web
 # 指定项目和端口，不自动打开浏览器
 zcode --web --workspace /path/to/project --port 3030 --no-open
 
+# 同时监听 TCP 端口和 fnOS Unix Socket
+zcode --web --workspace /path/to/project --port 3030 \
+  --socket /var/run/zcode/zcode.sock --no-open
+
 # 查看 CLI 或 Web 参数
 zcode --help
 zcode --web --help
@@ -103,6 +107,8 @@ zcode --web --help
 Web 模式默认工作目录为当前目录，监听 `127.0.0.1`，默认不启用访问令牌，自动选择空闲端口并打开浏览器。访问终端输出的地址，按 `Ctrl+C` 停止服务。局域网访问可使用 `--host 0.0.0.0`；监听非本机地址时默认生成访问令牌，使用终端输出的带令牌链接。可通过 `--token` 指定令牌或 `--no-token` 关闭令牌认证。
 
 直接启动通用 Web 服务的 HTTP 入口时，通过 `ZCODE_SERVER_AUTH_TOKEN` 配置 API／WebSocket 认证；通过程序接口创建服务时，使用 `authToken` 选项。
+
+Web 服务支持同时监听 TCP 端口和 Unix Socket。`PORT` 控制端口，`ZCODE_SERVER_SOCKET` 控制 Socket；未设置 `ZCODE_SERVER_SOCKET` 时保持原有的端口访问方式。配置访问令牌时，令牌只保护 TCP 端口；Unix Socket 供已由 fnOS 统一网关校验过的请求使用，不要求 ZCode Token 或 Cookie。
 
 构建方式见下方打包章节。`pnpm build:zcode` 只生成发行包，不会替换 `PATH` 中已有的 `zcode`。如果命令仍指向旧安装或其他源码目录，macOS / Linux 可用 `command -v zcode` 检查，Windows 可用 `where.exe zcode` 检查。
 
@@ -129,6 +135,7 @@ node apps/zcode-cli/packages/cli/dist/zcode.cjs --help
 | ------------------------------------ | ------------------------------------------------ |
 | `ZCODE_DATA_BASE_DIR`                | 应用数据基目录，数据写入其下的 `.zcode/`         |
 | `ZCODE_SERVER_WORKSPACE`             | Web 后端的工作区路径                             |
+| `ZCODE_SERVER_SOCKET`                | 可选的 Unix Socket 路径；设置后与 `PORT` 同时监听 |
 | `ZCODE_BUILTIN_PROVIDER_CONFIG_FILE` | 本地 Provider 配置文件路径；未设置时使用内置配置 |
 | `ZCODE_DIST_BASE_URL`                | 命令行安装脚本使用的下载根地址                   |
 
@@ -202,6 +209,19 @@ node dist/zcode/debug/zcode/bin/zcode.mjs --web \
 ```
 
 浏览器打开 `http://127.0.0.1:3030`，即可验证同一后端服务托管 Web 页面和 Agent 的完整链路。该端口需要空闲；如正在运行 `pnpm dev:web`，可改用其他 `--port`。
+
+fnOS 统一网关可以直接连接 ZCode 的 Unix Socket。服务端同时保留 TCP 端口，便于本机健康检查和直接访问：
+
+```bash
+export ZCODE_SERVER_AUTH_TOKEN='replace-with-a-long-random-token'
+export PORT=3030
+export ZCODE_SERVER_SOCKET=/var/run/zcode/zcode.sock
+node /path/to/zcode/server/entry-http.js
+```
+
+直接启动 `server/entry-http.js` 时，通过 `ZCODE_WEB_STATIC_ROOT` 指定 Web 静态目录；发行包的 `zcode --web` 启动器会传入该目录。
+
+将 fnOS 应用网关的 Socket 指向 `/var/run/zcode/zcode.sock`，公开路径按 fnOS 应用配置填写。统一网关访问直接使用 `https://<fnOS地址>/<应用路径>`，不需要 `?token=<TOKEN>`；fnOS 负责入口登录态和访问限制，ZCode 不读取 `X-Trim-*` Header 作为登录身份。直接访问 TCP 端口时，才使用带 Token 的 URL，并由 ZCode 写入 `zcode_lite_token` HttpOnly Cookie。不要把真实 token 写入 Git 或公开日志，也不要使用 `--no-token` 暴露 TCP 端口。
 
 ## 仓库结构
 

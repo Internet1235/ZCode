@@ -12,10 +12,11 @@ const { version } = JSON.parse(await readFile(join(root, "package.json"), "utf8"
 const serverEntry = join(root, "server", "entry-http.js");
 const webRoot = join(root, "web");
 const agentEntry = join(root, "agent", "zcode.cjs");
+const SHUTDOWN_TIMEOUT_MS = 10_000;
 
 function usage() {
   return `Usage:
-  zcode --web [--host <host>] [--port <port>] [--workspace <path>] [--open|--no-open] [--token <token>|--no-token]
+  zcode --web [--host <host>] [--port <port>] [--socket <path>] [--workspace <path>] [--open|--no-open] [--token <token>|--no-token]
   zcode --version
 `;
 }
@@ -37,6 +38,7 @@ function parseArgs(argv) {
     host: "127.0.0.1",
     open: undefined,
     port: undefined,
+    socketPath: undefined,
     token: undefined,
     tokenEnabled: undefined,
     workspace: process.cwd(),
@@ -64,6 +66,12 @@ function parseArgs(argv) {
       if (!Number.isInteger(options.port) || options.port < 0 || options.port > 65535) {
         throw new Error("--port must be an integer between 0 and 65535");
       }
+      index = parsed.nextIndex;
+      continue;
+    }
+    if (arg === "--socket" || arg.startsWith("--socket=")) {
+      const parsed = readArgValue(argv, arg, index);
+      options.socketPath = resolve(parsed.value);
       index = parsed.nextIndex;
       continue;
     }
@@ -180,6 +188,7 @@ async function serve(options) {
     env: {
       ...process.env,
       PORT: String(port),
+      ...(options.socketPath ? { ZCODE_SERVER_SOCKET: options.socketPath } : {}),
       ZCODE_AGENT_SERVER_ARGS_JSON: JSON.stringify([agentEntry, "app-server", "--stdio"]),
       ZCODE_AGENT_SERVER_COMMAND: process.execPath,
       ZCODE_SERVER_HOST: options.host,
@@ -191,6 +200,8 @@ async function serve(options) {
     stdio: ["ignore", "pipe", "pipe"],
   });
   let shuttingDown = false;
+  let shutdownTimedOut = false;
+  let shutdownTimer;
   child.on("error", (error) => {
     console.error(`Unable to start Web server: ${error.message}`);
     process.exit(1);
@@ -200,7 +211,10 @@ async function serve(options) {
   child.stderr.on("data", (chunk) => process.stderr.write(chunk));
   child.on("exit", (code, signal) => {
     if (shuttingDown) {
-      process.exit(0);
+      if (shutdownTimer) {
+        clearTimeout(shutdownTimer);
+      }
+      process.exit(shutdownTimedOut ? 1 : code ?? (signal ? 1 : 0));
     }
     if (signal) {
       process.exit(1);
@@ -229,7 +243,12 @@ async function serve(options) {
     }
     shuttingDown = true;
     child.kill("SIGTERM");
-    setTimeout(() => process.exit(0), 1500).unref();
+    shutdownTimer = setTimeout(() => {
+      shutdownTimedOut = true;
+      console.error(`Web server shutdown timed out after ${SHUTDOWN_TIMEOUT_MS}ms`);
+      child.kill("SIGKILL");
+      setTimeout(() => process.exit(1), 1_000).unref();
+    }, SHUTDOWN_TIMEOUT_MS);
   };
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);

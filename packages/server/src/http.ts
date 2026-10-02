@@ -1,10 +1,11 @@
 /* eslint-disable max-lines -- HTTP、WebSocket 与静态资源路由集中注册，保持同一鉴权顺序。 */
 import { randomUUID } from "node:crypto";
-import { readFile, stat } from "node:fs/promises";
-import { basename, extname, relative, resolve, sep } from "node:path";
+import { chmod, mkdir, readFile, stat, unlink } from "node:fs/promises";
+import { basename, dirname, extname, relative, resolve, sep } from "node:path";
 import { hostname } from "node:os";
 import { Hono, type Context } from "hono";
-import { serve } from "@hono/node-server";
+import { createAdaptorServer } from "@hono/node-server";
+import type { Server } from "node:http";
 import { createNodeWebSocket } from "@hono/node-ws";
 import type { WebSocket } from "ws";
 import {
@@ -139,6 +140,7 @@ interface HttpServerOptions {
   authToken?: string;
   spaFallback?: boolean;
   staticRoot?: string;
+  socketPath?: string;
   workspaces?: ServerRemoteWorkspaceInfo[];
 }
 
@@ -240,6 +242,13 @@ function isTokenProtectedPath(pathname: string): boolean {
   return pathname === "/ws" || pathname.startsWith("/ws/") || pathname.startsWith("/api/");
 }
 
+function gatewayRoutePath(pathname: string): string {
+  // 保留前缀的网关与剥离前缀的网关必须共用静态查找和 TCP 鉴权规则。
+  return pathname.startsWith("/app/zcode/")
+    ? pathname.slice("/app/zcode".length)
+    : pathname;
+}
+
 function isStaticFallbackAllowed(pathname: string): boolean {
   return !isTokenProtectedPath(pathname);
 }
@@ -295,19 +304,144 @@ function staticContentType(filePath: string): string {
   return staticMimeTypes[extname(filePath).toLowerCase()] ?? "application/octet-stream";
 }
 
-export function createHttpServer(
-  services: ServiceCollection,
-  port = 3030,
-  options: HttpServerOptions = {},
-) {
-  const app = new Hono();
-  const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
-  const hostCapabilities = createHostCapabilityStore();
+function listenOnTcp(server: Server, port: number, host: string | undefined): Promise<void> {
+  return new Promise<void>((resolveListen, rejectListen) => {
+    const onError = (error: Error) => {
+      server.off("listening", onListening);
+      rejectListen(error);
+    };
+    const onListening = () => {
+      server.off("error", onError);
+      const address = server.address();
+      const listenPort = typeof address === "object" && address ? address.port : port;
+      const listenHost = host?.trim() || "localhost";
+      log(`http://${listenHost}:${listenPort}`);
+      resolveListen();
+    };
+    server.once("error", onError);
+    server.once("listening", onListening);
+    if (host?.trim()) {
+      server.listen(port, host.trim());
+    } else {
+      server.listen(port);
+    }
+  });
+}
 
-  const authToken = options.authToken?.trim();
+async function prepareSocketPath(socketPath: string): Promise<void> {
+  await mkdir(dirname(socketPath), { recursive: true });
+  const existing = await stat(socketPath).catch((error: unknown) => {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  });
+  if (existing && !existing.isSocket()) {
+    throw new Error(`ZCode server socket path is not a socket: ${socketPath}`);
+  }
+  if (existing) {
+    await unlink(socketPath);
+  }
+}
+
+async function removeSocketPath(socketPath: string): Promise<void> {
+  const existing = await stat(socketPath).catch((error: unknown) => {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  });
+  if (existing?.isSocket()) {
+    await unlink(socketPath);
+  }
+}
+
+async function listenOnSocket(server: Server, socketPath: string): Promise<void> {
+  await new Promise<void>((resolveListen, rejectListen) => {
+    const onError = (error: Error) => {
+      server.off("listening", onListening);
+      rejectListen(error);
+    };
+    const onListening = () => {
+      server.off("error", onError);
+      resolveListen();
+    };
+    server.once("error", onError);
+    server.once("listening", onListening);
+    server.listen(socketPath);
+  });
+  await chmod(socketPath, 0o660);
+}
+
+function closeServer(server: Server): Promise<void> {
+  if (!server.listening) {
+    return Promise.resolve();
+  }
+  return new Promise((resolveClose, rejectClose) => {
+    server.close((error) => (error ? rejectClose(error) : resolveClose()));
+  });
+}
+
+interface UnixSocketListener {
+  server: Server;
+  path: string;
+}
+
+const unixSocketListeners = new WeakMap<Server, UnixSocketListener>();
+
+/**
+ * Closes the HTTP listeners created by {@link createHttpServer}.
+ *
+ * @param server The TCP listener returned by {@link createHttpServer}.
+ * @returns A promise that settles after the TCP and Unix Socket listeners close.
+ */
+export async function closeHttpServer(server: Server): Promise<void> {
+  const unixSocket = unixSocketListeners.get(server);
+  unixSocketListeners.delete(server);
+  const results = await Promise.allSettled([
+    closeServer(server),
+    unixSocket ? closeServer(unixSocket.server) : Promise.resolve(),
+  ]);
+  if (unixSocket) {
+    await removeSocketPath(unixSocket.path);
+  }
+  const failed = results.find((result) => result.status === "rejected");
+  if (failed?.status === "rejected") {
+    throw failed.reason;
+  }
+}
+
+interface HttpApplication {
+  app: Hono;
+  injectWebSocket: ReturnType<typeof createNodeWebSocket>["injectWebSocket"];
+}
+
+function createHttpNodeServer(fetch: Parameters<typeof createAdaptorServer>[0]["fetch"]): Server {
+  return createAdaptorServer({ fetch }) as Server;
+}
+
+function createHttpApplication(
+  services: ServiceCollection,
+  options: HttpServerOptions,
+  authToken: string | undefined,
+  hostCapabilities: ReturnType<typeof createHostCapabilityStore>,
+): HttpApplication {
+  const app = new Hono();
+  const gateway = new Hono();
+  const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app: gateway });
+
+  gateway.use("*", async (c, next) => {
+    const url = new URL(c.req.url);
+    if (url.pathname === "/app/zcode") {
+      // 先规范入口，替代无尾斜杠首页和资源路径兼容，保留 Token 等查询参数。
+      return c.redirect(`/app/zcode/${url.search}`, 308);
+    }
+    await next();
+  });
+
   if (authToken) {
     app.use("*", async (c, next) => {
-      const pathname = new URL(c.req.url).pathname;
+      const pathname = gatewayRoutePath(new URL(c.req.url).pathname);
       const validToken = hasValidLiteToken(c, authToken);
       if (!isTokenProtectedPath(pathname) || validToken) {
         await next();
@@ -449,7 +583,7 @@ export function createHttpServer(
   if (options.staticRoot?.trim()) {
     const staticRoot = options.staticRoot.trim();
     app.get("*", async (c) => {
-      const pathname = new URL(c.req.url).pathname;
+      const pathname = gatewayRoutePath(new URL(c.req.url).pathname);
       const filePath = await resolveStaticFile(staticRoot, pathname, options.spaFallback ?? true);
       if (!filePath) {
         return c.notFound();
@@ -463,14 +597,78 @@ export function createHttpServer(
     });
   }
 
-  const server = serve({ fetch: app.fetch, hostname: options.host, port }, () => {
-    const address = server.address();
-    const listenPort = typeof address === "object" && address ? address.port : port;
-    const listenHost = options.host?.trim() || "localhost";
-    log(`http://${listenHost}:${listenPort}`);
-  });
+  gateway.route("/app/zcode", app);
+  gateway.route("/", app);
+  return { app: gateway, injectWebSocket };
+}
 
-  injectWebSocket(server);
+/**
+ * Creates the shared ZCode HTTP and WebSocket server.
+ *
+ * @param services Services exposed through the HTTP and WebSocket routes.
+ * @param port TCP port for direct access.
+ * @param options HTTP, authentication, static file, and Unix Socket options.
+ * @returns The TCP listener after every configured listener is ready.
+ */
+export function createHttpServer(
+  services: ServiceCollection,
+  port = 3030,
+  options: HttpServerOptions = {},
+): Promise<Server> {
+  const authToken = options.authToken?.trim();
+  const hostCapabilities = createHostCapabilityStore();
+  const tcpApplication = createHttpApplication(services, options, authToken, hostCapabilities);
 
-  return server;
+  const server = createHttpNodeServer(tcpApplication.app.fetch);
+  tcpApplication.injectWebSocket(server);
+
+  const socketPath = options.socketPath?.trim();
+  const socketApplication = socketPath
+    ? createHttpApplication(
+        services,
+        { ...options, authRequired: false },
+        undefined,
+        hostCapabilities,
+      )
+    : undefined;
+  const socketServer = socketApplication
+    ? createHttpNodeServer(socketApplication.app.fetch)
+    : undefined;
+  if (socketServer && socketApplication) {
+    socketApplication.injectWebSocket(socketServer);
+  }
+
+  return (async () => {
+    if (socketPath) {
+      await prepareSocketPath(socketPath);
+    }
+    let socketWasBound = false;
+    try {
+      // 两个 listener 必须一起完成绑定；任意一个失败都不留下半启动的服务。
+      const startupTasks: Promise<void>[] = [listenOnTcp(server, port, options.host)];
+      if (socketServer && socketPath) {
+        startupTasks.push(listenOnSocket(socketServer, socketPath));
+      }
+      const startupResults = await Promise.allSettled(startupTasks);
+      socketWasBound = Boolean(socketServer?.listening);
+      const failed = startupResults.find((result) => result.status === "rejected");
+      if (failed?.status === "rejected") {
+        throw failed.reason;
+      }
+    } catch (error: unknown) {
+      await Promise.allSettled([
+        closeServer(server),
+        socketServer ? closeServer(socketServer) : Promise.resolve(),
+      ]);
+      if (socketPath && socketWasBound) {
+        await removeSocketPath(socketPath).catch(() => undefined);
+      }
+      throw error;
+    }
+    if (socketServer && socketPath) {
+      unixSocketListeners.set(server, { server: socketServer, path: socketPath });
+      log(`unix://${socketPath}`);
+    }
+    return server;
+  })();
 }

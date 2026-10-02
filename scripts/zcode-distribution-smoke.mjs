@@ -2,7 +2,8 @@
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { request as httpRequest } from "node:http";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -17,6 +18,7 @@ const directory = await realpath(await mkdtemp(join(tmpdir(), "zcode-release-smo
 const root = join(directory, "zcode");
 const runner = join(root, "bin/zcode.mjs");
 const workspace = join(directory, "workspace");
+const socketPath = process.platform === "win32" ? undefined : join(directory, "zcode.sock");
 const env = {
   ...process.env,
   ZCODE_DATA_BASE_DIR: join(directory, "data"),
@@ -76,7 +78,20 @@ try {
   terminal = undefined;
 
   let webOutput = "";
-  web = spawn(process.execPath, [runner, "--web", "--workspace", workspace, "--no-open"], {
+  const tcpToken = "zcode-smoke-token";
+  const webArgs = [
+    runner,
+    "--web",
+    "--workspace",
+    workspace,
+    "--no-open",
+    "--token",
+    tcpToken,
+  ];
+  if (socketPath) {
+    webArgs.push("--socket", socketPath);
+  }
+  web = spawn(process.execPath, webArgs, {
     cwd: workspace,
     env,
     stdio: ["ignore", "pipe", "pipe"],
@@ -100,7 +115,10 @@ try {
   await until(
     async () => {
       try {
-        const response = await fetch(new URL("api/server-info", base), {
+        // 相对 URL 会丢弃基地址的查询串，Token 必须加在最终 API 地址上。
+        const infoUrl = new URL("api/server-info", base);
+        infoUrl.searchParams.set("token", tcpToken);
+        const response = await fetch(infoUrl, {
           signal: AbortSignal.timeout(1000),
         });
         if (!response.ok) return false;
@@ -114,17 +132,70 @@ try {
     () => webOutput,
   );
   assert.equal(info.workspaces[0].path, workspace);
-  const html = await fetch(base);
+  const publicBase = new URL(base);
+  publicBase.search = "";
+  const unauthorizedInfo = await fetch(new URL("api/server-info", publicBase));
+  assert.equal(unauthorizedInfo.status, 401);
+  const html = await fetch(publicBase);
   assert.equal(html.status, 200);
-  assert.match(await html.text(), /<html/i);
+  const htmlText = await html.text();
+  assert.match(htmlText, /<html/i);
+  const assetPaths = [...htmlText.matchAll(/(?:src|href)=["'](?:\/|\.\/)(assets\/[^"']+)["']/g)].map(
+    ([, assetPath]) => `/${assetPath}`,
+  );
+  assert.ok(assetPaths.length > 0, "Web HTML has no generated asset references");
+  for (const assetPath of assetPaths) {
+    const asset = await fetch(new URL(assetPath, base));
+    assert.equal(asset.status, 200, assetPath);
+    assert.notEqual(asset.headers.get("content-type"), null, assetPath);
+  }
   const { default: WebSocket } = await import(pathToFileURL(require.resolve("ws")).href);
-  const socket = new WebSocket(new URL("ws", base.replace("http:", "ws:")));
-  await once(socket, "open");
-  socket.close();
-  await once(socket, "close");
+  const unauthorizedWebSocket = new WebSocket(
+    new URL("ws", publicBase.toString().replace("http:", "ws:")),
+  );
+  const unauthorizedWebSocketStatus = await new Promise((resolveStatus, rejectStatus) => {
+    unauthorizedWebSocket.once("unexpected-response", (_request, response) => {
+      response.resume();
+      resolveStatus(response.statusCode);
+    });
+    unauthorizedWebSocket.once("error", rejectStatus);
+  });
+  assert.equal(unauthorizedWebSocketStatus, 401);
+  const tcpWebSocketUrl = new URL("ws", publicBase.toString().replace("http:", "ws:"));
+  tcpWebSocketUrl.searchParams.set("token", tcpToken);
+  const tcpSocket = new WebSocket(tcpWebSocketUrl);
+  await once(tcpSocket, "open");
+  tcpSocket.close();
+  await once(tcpSocket, "close");
+
+  if (socketPath) {
+    const unixInfo = await requestOverSocket(socketPath, "/api/server-info");
+    assert.equal(unixInfo.statusCode, 200);
+    assert.equal(JSON.parse(unixInfo.body).workspaces[0].path, workspace);
+    const unixHtml = await requestOverSocket(socketPath, "/");
+    assert.equal(unixHtml.statusCode, 200);
+    assert.match(unixHtml.headers["content-type"] ?? "", /text\/html/);
+    for (const assetPath of assetPaths) {
+      const asset = await requestOverSocket(socketPath, assetPath);
+      assert.equal(asset.statusCode, 200, `unix://${assetPath}`);
+      assert.match(asset.headers["content-type"] ?? "", /\S+/, `unix://${assetPath}`);
+    }
+    const unixSocket = new WebSocket("ws://localhost/ws", { socketPath });
+    await once(unixSocket, "open");
+    unixSocket.close();
+    await once(unixSocket, "close");
+  }
+
   const exited = once(web, "exit");
   web.kill("SIGTERM");
   assert.deepEqual(await exited, [0, null]);
+  if (socketPath) {
+    await until(
+      async () => !(await stat(socketPath).catch(() => null)),
+      "Unix Socket cleanup",
+      () => socketPath,
+    );
+  }
   web = undefined;
   console.log(
     JSON.stringify({
@@ -132,7 +203,10 @@ try {
       platform: process.platform,
       arch: process.arch,
       tui: "native import, initialized render, keyboard exit passed",
-      web: "HTML, server-info, workspace, WebSocket, shutdown passed",
+      web: "TCP token, HTML, assets, server-info, workspace, WebSocket, shutdown passed",
+      ...(socketPath
+        ? { unixSocket: "HTTP, assets, server-info, WebSocket, cleanup passed" }
+        : {}),
       isolated: true,
     }),
   );
@@ -149,4 +223,29 @@ async function until(check, label, diagnostic) {
     await setTimeout(100);
   }
   throw new Error(`${label} timed out:\n${diagnostic()}`);
+}
+
+function requestOverSocket(socket, path) {
+  return new Promise((resolveRequest, rejectRequest) => {
+    const request = httpRequest(
+      {
+        headers: { host: "localhost" },
+        path,
+        socketPath: socket,
+      },
+      (response) => {
+        const chunks = [];
+        response.on("data", (chunk) => chunks.push(chunk));
+        response.on("end", () => {
+          resolveRequest({
+            body: Buffer.concat(chunks).toString("utf8"),
+            headers: response.headers,
+            statusCode: response.statusCode ?? 0,
+          });
+        });
+      },
+    );
+    request.on("error", rejectRequest);
+    request.end();
+  });
 }
