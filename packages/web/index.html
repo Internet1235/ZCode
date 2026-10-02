@@ -2,6 +2,15 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      (() => {
+        // 无尾斜杠入口由 Server 重定向；这里只处理规范页面的 API/WS 基路径。
+        const base = document.createElement("base");
+        const path = location.pathname;
+        base.href = path.startsWith("/app/zcode/") ? "/app/zcode/" : "/";
+        document.head.prepend(base);
+      })();
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#161616" />
     <meta name="color-scheme" content="dark" />
