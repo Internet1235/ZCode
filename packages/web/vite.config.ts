@@ -39,6 +39,8 @@ export default defineConfig(({ mode }) => {
   const zaiOAuthClientId = resolveZaiOAuthClientId(endpointEnv);
 
   return {
+    // 网关仅转发 /app/zcode；根路径资源会绕过网关，使用相对构建地址兼容直连。
+    base: "./",
     plugins: [pdfJsCMapsPlugin(), react(), tailwindcss(), thirdPartyNoticesVitePlugin()],
     resolve: {
       alias: {

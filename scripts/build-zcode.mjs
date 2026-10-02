@@ -139,6 +139,23 @@ async function assertDirectory(directory, label) {
   }
 }
 
+async function assertWebBuild(webDist) {
+  const indexFile = resolve(webDist, "index.html");
+  await assertFile(indexFile, "web index.html");
+
+  const html = await readFile(indexFile, "utf8");
+  const assetReferences = [...html.matchAll(/(?:src|href)=["'](?:\/|\.\/)(assets\/[^"']+)["']/g)].map(
+    ([, assetPath]) => `/${assetPath}`,
+  );
+  if (assetReferences.length === 0) {
+    throw new Error(`Web index.html has no generated asset references: ${indexFile}`);
+  }
+
+  for (const assetPath of assetReferences) {
+    await assertFile(resolve(webDist, `.${assetPath}`), `web asset ${assetPath}`);
+  }
+}
+
 async function buildOutputs(skipBuild) {
   if (skipBuild) {
     console.log("[zcode] skipping build; reusing existing outputs");
@@ -151,6 +168,10 @@ async function buildOutputs(skipBuild) {
     recursive: true,
   });
   run("pnpm", ["--filter", "@zcode/server", "build"]);
+  await rm(resolve(root, "packages", "web", "dist"), {
+    force: true,
+    recursive: true,
+  });
   run("pnpm", ["--filter", "@zcode/web", "build"]);
 }
 
@@ -161,6 +182,7 @@ async function stageZCodePackage({ packageRoot, version }) {
   const agentProvider = resolve(root, "apps/zcode-cli/packages/cli/dist/provider");
 
   await assertDirectory(webDist, "web dist");
+  await assertWebBuild(webDist);
   await assertDirectory(serverDist, "server dist");
   await assertFile(resolve(serverDist, "entry-http.js"), "server HTTP entry");
   await assertFile(agentBundle, "agent app-server bundle");
@@ -177,6 +199,7 @@ async function stageZCodePackage({ packageRoot, version }) {
   await cp(webDist, resolve(packageRoot, "web"), {
     recursive: true,
   });
+  await assertWebBuild(resolve(packageRoot, "web"));
   await cp(serverDist, resolve(packageRoot, "server"), {
     recursive: true,
   });

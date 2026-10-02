@@ -2,6 +2,17 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      (() => {
+        // 无尾斜杠的网关入口也必须把相对资源解析到 /app/zcode/ 下。
+        const base = document.createElement("base");
+        const path = location.pathname;
+        base.href = path === "/app/zcode" || path.startsWith("/app/zcode/")
+          ? "/app/zcode/"
+          : "/";
+        document.head.prepend(base);
+      })();
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#161616" />
     <meta name="color-scheme" content="dark" />

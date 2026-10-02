@@ -1,1 +1,1 @@
-export { createHttpServer } from "./http.js";
+export { closeHttpServer, createHttpServer } from "./http.js";
