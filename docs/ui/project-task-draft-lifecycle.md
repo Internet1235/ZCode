@@ -60,6 +60,62 @@ Plan 仍是草稿/运行态，不作为全新任务继承的开关。无有效�
 首发期间的新输入属于同一编辑周期，迁移到正式 session 后保留，不被新建草稿清理覆盖。
 附件沿用现有准备与上传流程；本次不增加附件跨重启持久化。
 
+### 创建项目后的当前服务导航
+
+创建表单的默认设备表示当前项目服务；保存返回的 `project.hostId` 是项目存储 owner，
+不代表用户选择了外部设备。创建后的 `onCreateTask` 必须沿用保存时的请求目标：默认
+当前服务省略 Host，显式外部请求保留 Host。当前 Source 的真实 owner 即使不是
+`local`，也不能因此要求桌面跨设备 opener 或伪造 `workspaceIdentity`。
+
+ProjectEditor 只持有创建草稿并提交项目，ProjectCreation 在刷新后复验原 tab、完整
+workspaceKey、任务和草稿代际，再交付正文、内存附件与分组意图。Root 是目录准备、
+导航提交和目标草稿初始化的唯一 owner；保存成功或表单关闭不代表导航成功。
+当前服务项目的后续新建按该服务返回的有效项目校验归属，不要求存储 owner 字符串
+必须为 `local`，不按 cwd 猜项目。真正外部项目仍要求所属 Host 提供真实 identity、
+已有 opener 和有效 membership；缺失时明确拒绝，不能静默回落当前服务。
+
+```mermaid
+sequenceDiagram
+    participant Form as ProjectEditor / ProjectCreation
+    participant Service as 当前 ProjectService
+    participant Root as Root 导航 owner
+    participant Draft as Tab / Composer 草稿
+    Form->>Service: saveProject（沿用所选请求目标）
+    Service-->>Form: 项目 ID 与真实存储 owner
+    Form->>Form: 刷新并复验原聊天返回资格
+    Form->>Root: onCreateTask（原请求目标、正文、附件、分组）
+    Root->>Service: prepareSession（同一请求目标）
+    Service-->>Root: 真实 cwd 与可选 identity
+    Root->>Root: 复验导航序号、tab 与草稿代际
+    Root->>Draft: 当前服务 addTab；唯一入口初始化目标草稿
+```
+
+桌面 continuous 沿用上述 Root 提交路径；手机 replayable 仍由既有 bridge 准备目录并
+重建目标 Root，旧 Root 不初始化目标草稿。目录准备失败或结果迟到时保留当前页面和
+草稿；不新增连接、Host、Agent、接受队列或附件持久化。
+
+PCD01–03 的本轮聚焦浏览器回归复用
+`packages/web/test/e2e/source/project-directory-picker.mjs`：真实创建表单、Root hook、
+Tab/Session store、普通 `/ws`、项目服务、文件 IO 与隔离 SQLite。验收当前 Source
+创建后进入正确项目草稿并保留正文、File 附件和分组；同目录 tab 复用及再次新建仍
+保留项目；local 默认对照；显式外部缺 identity 明确拒绝；受控 prepare 失败、切 tab
+或草稿换代后迟到结果不提交导航。该回归不启动 Agent，不证明首发、Linux/fnOS
+安装包、原生桌面 opener 或手机 bridge 已实测。
+
+验证（2026-11-14，基线 `f7cc3e76`）：Windows 本机串行执行上述 runner，13 个场景及
+普通 `/ws` Host guard 全通过。Source 的 1024/390px、深浅主题、中英文八个场景及
+local 默认对照均核对真实 Root 导航、正文/File/分组交接、同目录 tab 复用和后续新建
+项目继承；另覆盖外部登记失败重试后缺 identity 的明确拒绝、prepare 失败与两种迟到
+结果。外部拒绝是 guard 通过，不是外部导航成功。有效修前运行复现了 save 省略 Host、
+prepare 却携带 Source owner；页面加载超时及并行验证的资源失败不计通过证据。
+
+UI/Web scoped 类型检查及独立 fixture 类型检查通过；`pnpm lint` 为 539 warnings、
+0 errors，相关新建任务 callback 的 Hooks 依赖诊断已消失；changed architecture 为
+0 violations。根 `pnpm typecheck` 退出码 2，被未修改的
+`packages/desktop/test/e2e/fixtures/credential-recovery/server-websocket.ts` 四个
+Promise<Server> 类型诊断阻断，未计通过，也未扩大本次修复。验证使用独立临时数据、
+动态 loopback 端口和独立浏览器，结束后释放本轮资源；未操作真实凭据或共享服务。
+
 ## 生命周期与时序
 
 ```mermaid

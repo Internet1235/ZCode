@@ -5404,11 +5404,27 @@ SPR03 在最终构建复跑 `complete-cross`，1/1 PASS：8/16/32 次及闲置�
 
 ## PCD 创建后选择草稿项目（2026-10-16）
 
-| ID    | 场景与断言                                                                | 验证                                                                                                                                                                                                               |
-| ----- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| PCD01 | 侧栏/草稿菜单新建成功，当前草稿左上角选中新项目，正文及附件保留；深浅主题 | `packages/ui/test/browser/manual-review/pending/project-created-draft.test.mjs`（pending）                                                                                                                         |
-| PCD02 | 已有会话、保存/刷新期间草稿换代、取消/失败不导航                          | 退役单测的独立断言待补；历史记录：`retired:packages/ui/test/projectCreation.test.ts`、`retired:packages/ui/test/composerDraftWorkspaceTransfer.test.ts`；PCD01 浏览器补已有会话                                    |
-| PCD03 | 远端登记入口成功后选择，手机 Root 重建后保留正文、附件及分组意图          | 退役单测的独立断言待补；历史记录：`retired:packages/ui/test/projectCreation.test.ts`；`packages/desktop/test/e2e/conversation-session/projects/conversation-session-virtual-project-mobile.test.ts`（pending，shared-host） |
+| ID    | 场景与断言                                                                                                         | 验证                                                                                                                                                                                                                      |
+| ----- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PCD01 | 创建后选中新项目，正文、File 附件及分组保留；当前 Source 非 local owner 的同目录导航及后续新建继承；local 默认对照 | `packages/web/test/e2e/source/project-directory-picker.mjs`（2026-11-14 Windows 真实 Root、RPC、IO、隔离 SQLite 通过）；旧浏览器及 macOS 记录保持独立                                                                     |
+| PCD02 | 已有会话、保存/刷新期间草稿换代、取消/失败不导航；prepare 失败、切 tab/草稿换代后的迟到结果不覆盖当前状态          | 同一 Source runner 的受控 RPC 失败/释放屏障（2026-11-14 Windows 通过）；已有会话仍由 PCD01 历史浏览器证据覆盖，不恢复退役 App 单测                                                                                        |
+| PCD03 | 外部入口登记成功后才导航；重试不重复创建；外部缺真实 identity/opener 明确拒绝；手机目标 Root 保留交接意图          | 同一 Source runner 的外部拒绝/登记重试（2026-11-14 Windows 通过）；手机 `packages/desktop/test/e2e/conversation-session/projects/conversation-session-virtual-project-mobile.test.ts`（pending，shared-host，非本轮证据） |
+
+本轮 accepted 范围与剪枝见
+[创建后当前服务导航](../ui/project-task-draft-lifecycle.md#创建项目后的当前服务导航)。
+聚焦回归必须观察 Root 实际提交后的 tab purpose、projectId、草稿代际、持久正文和内存
+附件，不以表单关闭、save/prepare 回包或 fixture 写入目标成功状态代替。本轮检查不
+继承下面的历史通过结果；Linux/fnOS 安装包、原生桌面与手机 bridge 未计本轮覆盖。
+
+验证（2026-11-14，基线 `f7cc3e76`）：Windows 串行 13 场景及普通 `/ws` Host guard
+全通过，涵盖 Source 1024/390px × 深浅主题 × 中英文、local 默认对照、外部登记重试
+及缺 identity 拒绝、prepare 失败、切 tab/草稿换代后的迟到结果。外部拒绝不计导航成功。
+有效修前运行复现了错误 prepare Host；加载超时及并行验证资源失败不计通过。
+UI/Web scoped 与独立 fixture 类型检查通过；根 `pnpm typecheck` 退出码 2，被未修改
+`packages/desktop/test/e2e/fixtures/credential-recovery/server-websocket.ts` 四个类型
+诊断阻断。`pnpm lint` 为 539 warnings、0 errors；相关新建 callback 的 Hooks 依赖
+诊断已消失，changed architecture 为 0 violations。资源隔离及验证边界见上述规格；
+用例保持 pending，不晋升 formal/CI，不借用下面的历史通过结果。
 
 验证（2026-10-16）：macOS 桌面两入口、深浅主题及已有会话隔离通过；Chrome 手机视口的真实 shared-host 链路确认新项目选中、正文保留、附件重新上传至 ready。受影响单测 432 文件 / 5782 项通过（1 项既有跳过），typecheck、E2E typecheck、lint、架构及代码格式检查通过。用例保持 pending；未覆盖 Windows/Linux 整机和真实 SSH 设备。
 

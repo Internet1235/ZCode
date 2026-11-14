@@ -5245,11 +5245,21 @@ VP-ROOT-01 的零 root 对照从冷态持久项目准备；PCD01 创建后自动
 
 ## PCD 创建后选择草稿项目（2026-10-16）
 
-| ID    | 场景与断言                                                                | 验证                                                                                                                      |
-| ----- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| PCD01 | 侧栏/草稿菜单新建成功，当前草稿左上角选中新项目，正文及附件保留；深浅主题 | `packages/ui/test/browser/manual-review/pending/project-created-draft.test.mjs`（pending）                                |
-| PCD02 | 已有会话、保存/刷新期间草稿换代、取消/失败不导航                          | `packages/ui/test/projectCreation.test.ts`、`composerDraftWorkspaceTransfer.test.ts`；PCD01 浏览器补已有会话              |
-| PCD03 | 远端登记入口成功后选择，手机 Root 重建后保留正文、附件及分组意图          | `packages/ui/test/projectCreation.test.ts`；`conversation-session-virtual-project-mobile.test.ts`（pending，shared-host） |
+| ID    | 场景与断言                                                                                                                          | 验证                                                                                                                                                                                                                                                             |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PCD01 | 侧栏/草稿菜单新建成功，选中新项目并保留正文、附件与分组；当前 Source owner 非 local 也走当前服务导航，同目录 tab 及后续新建保留项目 | `packages/ui/test/browser/manual-review/pending/project-created-draft.test.mjs`；`packages/web/test/e2e/source/project-directory-picker.mjs`（2026-11-14 Windows Source/Root 聚焦回归通过；pending）                                                             |
+| PCD02 | 已有会话、保存/刷新期间草稿换代、取消/失败不导航；prepare 失败或切 tab/草稿换代后的迟到结果不提交目标                               | PCD01 历史浏览器的已有会话断言；`packages/web/test/e2e/source/project-directory-picker.mjs`（2026-11-14 Windows 受控失败/迟到回归通过）；不恢复退役 App 单测                                                                                                     |
+| PCD03 | 显式外部创建保留 Host 和入口登记重试；缺真实 identity/opener 时明确拒绝、不回落当前服务；手机 Root 重建仍交接正文、附件及分组       | `packages/web/test/e2e/source/project-directory-picker.mjs`（2026-11-14 Windows 外部登记重试/缺身份拒绝通过）；`packages/desktop/test/e2e/conversation-session/projects/conversation-session-virtual-project-mobile.test.ts`（pending，shared-host，非本轮证据） |
+
+PCD01–03 语义 accepted。当前服务与外部请求的归属、时序及剪枝见
+[项目草稿生命周期](ui/project-task-draft-lifecycle.md#创建项目后的当前服务导航)。本轮只
+补普通 Source `/ws` → 真实 Root/tab/草稿的证据，不将保存或 prepare 成功视为导航完成，
+不将浏览器视口模拟视为原生桌面或手机 bridge 实测；凭据、Agent 启动与系统权限不在范围内。
+
+2026-11-14：聚焦 runner 的 13 个场景及普通 `/ws` Host guard 全通过；有效修前运行
+复现错误 Host。UI/Web 和独立 fixture 类型检查通过，根类型检查被未修改凭据夹具的
+四个诊断阻断；Lint 539 warnings、0 errors，架构 0 violations。完整证据边界见上述
+生命周期规格；不继承历史平台通过结果，不晋升 formal/CI。
 
 ## YOLO 切换确认（YC，accepted/pending）
 

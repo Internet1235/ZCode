@@ -2649,6 +2649,7 @@ nodes:
       - "Only non-whitespace text creates a durable draft. Empty controls stay in the active Composer; New Task initializes from client-local host/project Recent; unclassified tasks have their own scope. Session restoration keeps draft text/model but takes permission and Plan from the current snapshot."
       - "Historical grant/Plan records establish an observation baseline on entry; only newly observed changes update the mounted Composer. Observation IDs are never persisted in drafts. Reads are side-effect free."
       - "Project/group creation intent accompanies durable text. Project ID isolates Root drafts even when primary roots match; formal session drafts retain workspace/session identity. Accepted user Submission updates frozen project Recent through the pending command registry. A pending task draft ID reuses its directory until accepted and protects later drafts from late acknowledgements."
+      - "Creating a project hands the original request target to Root, not the returned storage owner. Current-service Source projects retain their project ID when preparing and inheriting drafts; explicit external requests still require real identity/opener/membership. Save or prepare success alone is not a committed draft navigation."
 
   - id: "surface.conversation-model-control"
     kind: "ui-surface"
@@ -5103,12 +5104,17 @@ nodes:
   - id: "surface.project-creation-form"
     kind: "ui-surface"
     label: "Project creation form and selected folder draft"
-    docs: ["docs/specs/project-creation-folder-confirmation.md"]
+    docs:
+      - "docs/specs/project-creation-folder-confirmation.md"
+      - "docs/ui/project-local-directory-picker.md"
+      - "docs/ui/project-task-draft-lifecycle.md"
     codeSeeds:
       - symbol: "ProjectCreation"
         file: "packages/ui/src/project-sidebar/ProjectCreation.tsx"
       - symbol: "ProjectEditor"
         file: "packages/ui/src/project-sidebar/ProjectEditor.tsx"
+    invariants:
+      - "Default device means the current project service. A returned non-local storage owner is not an external request; only an explicit external target registers a controller entry and retains Host routing for navigation."
 
   - id: "capability.workspace-hook-persistent-trust"
     kind: "capability"
@@ -8966,6 +8972,11 @@ edges:
     type: "renders-in"
     rank: "must-inspect"
     condition: "Every creation with selected folders requires explicit confirmation, including folders used by another project. No persistent folder trust record; local zero-root projects skip confirmation and retain lazy default-directory creation."
+  - from: "surface.project-creation-form"
+    to: "state.composer-text-draft"
+    type: "hands-off-to"
+    rank: "must-inspect"
+    condition: "After save and refresh, only the still-current original draft hands its text, in-memory attachments, group intent, and requested Host to the existing Root navigation owner. Root prepares the directory before committing the tab and target draft; mobile still uses the existing replayable bridge."
   - from: "capability.project-creation-folder-confirmation"
     to: "capability.workspace-hook-persistent-trust"
     type: "must-not-mutate"

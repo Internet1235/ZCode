@@ -346,16 +346,12 @@ export function useRootWorkspaceActions({
             : (workspace.draftProjectId ?? undefined);
           if (projectId && (!hostId || hostId === "local")) {
             // 软删除保留历史 project_id；把它直接继承给新任务会报 not-found 并停在旧页。
-            // 只继承同 Host 的有效项目，草稿也复验；读取失败仍报错，不冒充项目已删除。
+            // 当前服务已按 owner 过滤项目；Source owner 不一定是 local，不能因此丢掉合法归属。
+            // 草稿也复验；读取失败仍报错，不冒充项目已删除。
             const projects = tree?.projects ?? (await services.projectService?.readProjects());
             if (!projects) throw new Error("project.service-unavailable");
-            if (
-              !projects.some(
-                (project) =>
-                  project.id === projectId && project.hostId === "local" && !project.deleted,
-              )
-            ) {
-              logger.debug("[Root] 新任务不继承已删除的本地项目", { projectId });
+            if (!projects.some((project) => project.id === projectId && !project.deleted)) {
+              logger.debug("[Root] 新任务不继承已删除的当前服务项目", { projectId });
               projectId = undefined;
             }
           }
@@ -445,6 +441,7 @@ export function useRootWorkspaceActions({
     },
     [
       services.projectService,
+      services.taskGroupService,
       intl,
       composerClientNamespace,
       activeWorkspacePath,
