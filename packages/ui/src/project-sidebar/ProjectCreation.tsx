@@ -172,9 +172,10 @@ export function ProjectCreation({
         projectId: project.id,
         hostId: project.hostId,
       });
+      // 当前 Source 的存储 owner 不代表外部设备；导航必须沿用保存时的请求目标。
       onCreateTask({
         projectId: project.id,
-        hostId: project.hostId,
+        hostId: requestedHostId,
         taskGroupId: draft.draftTaskGroupId ?? null,
         initialComposerDraft: captureV4ComposerDraftHandoff(
           workspacePath,

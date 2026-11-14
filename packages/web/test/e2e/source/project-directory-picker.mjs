@@ -1,4 +1,4 @@
-// SDP01–03：真实创建表单、普通 /ws、项目服务、文件 IO 与隔离 SQLite。
+// SDP01–03 / PCD01–03：真实创建表单、Root 导航、普通 /ws、文件 IO 与隔离 SQLite。
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -29,6 +29,7 @@ const sourceHome = join(root, "source-home");
 const localHome = join(root, "local-home");
 const sourcePath = join(sourceHome, "allowed-workspace");
 const localPath = join(localHome, "allowed-workspace");
+const alternatePath = join(root, "other-workspace");
 const sourceServerId = "project-picker-source";
 const sourceHostId = remoteHostIdFromWorkspaceIdentity(
   buildServerRemoteWorkspaceIdentity({
@@ -48,6 +49,21 @@ let browser;
 let uiServer;
 let uiUrl;
 let rejectNextEntry = false;
+let rejectNextPrepare = false;
+let heldPrepare;
+
+function holdPrepare() {
+  let release;
+  let started;
+  const ready = new Promise((resolve) => {
+    started = resolve;
+  });
+  const result = new Promise((resolve) => {
+    release = resolve;
+  });
+  heldPrepare = { started, result };
+  return { ready, release };
+}
 
 function trace(owner, service) {
   return Object.fromEntries(
@@ -61,7 +77,21 @@ function trace(owner, service) {
             rejectNextEntry = false;
             throw new Error("project.connection-unavailable");
           }
-          return await implementation(...args);
+          if (owner === "source" && method === "prepareSession" && rejectNextPrepare) {
+            rejectNextPrepare = false;
+            throw new Error("project.primaryRootUnavailable");
+          }
+          const result = await implementation(...args);
+          if (method === "prepareSession") {
+            call.result = result;
+            if (owner === "source" && heldPrepare) {
+              const hold = heldPrepare;
+              heldPrepare = undefined;
+              hold.started();
+              await hold.result;
+            }
+          }
+          return result;
         } catch (error) {
           call.error = String(error);
           throw error;
@@ -123,6 +153,18 @@ async function browse(page, home, path) {
   return panel;
 }
 
+async function navigationState(page) {
+  return JSON.parse(await page.getByTestId("picker-navigation-state").textContent());
+}
+
+async function waitForNavigation(page, settled) {
+  await page.waitForFunction((settled) => {
+    const output = document.querySelector('[data-testid="picker-navigation-state"]');
+    return output && JSON.parse(output.textContent).settled === settled;
+  }, settled);
+  return navigationState(page);
+}
+
 async function runPicker({
   url,
   home,
@@ -133,13 +175,18 @@ async function runPicker({
   width,
   external = false,
   retryEntry = false,
+  navigation = "current",
 }) {
+  browser = await chromium.launch({
+    channel: process.env.PLAYWRIGHT_CHROMIUM_CHANNEL ?? "chrome",
+    headless: true,
+  });
   const context = await browser.newContext({ viewport: { width, height: 900 } });
   const errors = [];
   const consoleErrors = [];
   const page = await context.newPage();
   page.setDefaultTimeout(10_000);
-  page.setDefaultNavigationTimeout(60_000);
+  page.setDefaultNavigationTimeout(120_000);
   page.on("pageerror", (error) => errors.push(String(error)));
   page.on("console", (message) => {
     if (message.type() === "error") consoleErrors.push(message.text());
@@ -149,17 +196,27 @@ async function runPicker({
     return hostname === "127.0.0.1" ? route.continue() : route.abort();
   });
   const ws = url.replace("http:", "ws:") + "/ws";
-  const query = new URLSearchParams({ ws, workspace: path, locale, theme });
+  const query = new URLSearchParams({
+    ws,
+    workspace: path,
+    otherWorkspace: alternatePath,
+    locale,
+    theme,
+  });
   const start = calls.length;
   const countProjects = async () =>
     (await (owner === "source" ? sourceIndex : localIndex).getProjectRepository()).readTree()
       .projects.length;
   const before = await countProjects();
   const cancel = locale === "en-US" ? "Cancel" : "取消";
-  const name = `SDP-${external ? "external" : owner}-${width}-${theme}-${locale}`;
+  const name = `SDP-${external ? "external" : owner}-${width}-${theme}-${locale}-${navigation}`;
+  let hold;
   try {
     await page.goto(`${uiUrl}/?${query}`, { waitUntil: "domcontentloaded" });
-    await page.getByTestId("picker-ready").waitFor({ timeout: 60_000 });
+    await page.getByTestId("picker-ready").waitFor({ timeout: 120_000 });
+    const original = await navigationState(page);
+    assert.equal(original.projectId, null);
+    assert.equal(original.workspacePurpose, "conversation");
     if (external) {
       await page.getByTestId("virtual-project-device").click();
       await page.locator(`[data-device-id="${sourceHostId}"]`).click();
@@ -203,6 +260,8 @@ async function runPicker({
     assert.equal(calls.slice(start).filter((call) => call.method === "saveProject").length, 0);
     await page.getByTestId("virtual-project-save").click();
     if (retryEntry) rejectNextEntry = true;
+    if (navigation === "prepare-failure") rejectNextPrepare = true;
+    if (navigation === "stale-tab" || navigation === "stale-draft") hold = holdPrepare();
     await page.getByTestId("project-folder-trust-confirm").click();
     if (retryEntry) {
       await page.getByRole("alert").waitFor();
@@ -212,6 +271,26 @@ async function runPicker({
       await page.getByTestId("virtual-project-save").click();
     }
     await page.getByTestId("picker-closed").waitFor();
+    if (hold) {
+      let timeout;
+      try {
+        await Promise.race([
+          hold.ready,
+          new Promise((_, reject) => {
+            timeout = setTimeout(
+              () => reject(new Error("Prepare barrier was not reached")),
+              10_000,
+            );
+          }),
+        ]);
+      } finally {
+        clearTimeout(timeout);
+      }
+      await page
+        .getByTestId(navigation === "stale-tab" ? "picker-switch-tab" : "picker-replace-draft")
+        .click();
+      hold.release();
+    }
     assert.equal(await page.getByTestId("picker-saved").textContent(), "1");
     assert.equal(await countProjects(), before + 1);
     const repository = await (owner === "source" ? sourceIndex : localIndex).getProjectRepository();
@@ -246,6 +325,83 @@ async function runPicker({
       if (retryEntry) assert.match(entries[0].error, /project\.connection-unavailable/);
       assert.equal(entries.at(-1).error, undefined);
     }
+    let state = await waitForNavigation(page, 1);
+    const prepares = calls
+      .slice(start)
+      .filter((call) => call.owner === requestOwner && call.method === "prepareSession");
+    assert.equal(prepares.length, 1);
+    assert.equal(prepares[0].args[0].projectId, saved.id);
+    assert.equal(prepares[0].args[0].hostId, target);
+    if (external || navigation === "prepare-failure") {
+      assert.equal(state.completed, 0);
+      assert.match(
+        state.error,
+        external ? /project\.remote-navigation-unavailable/ : /project\.primaryRootUnavailable/,
+      );
+      assert.equal(state.activeTabId, original.activeTabId);
+      assert.equal(state.workspacePurpose, "conversation");
+      assert.equal(state.projectId, null);
+      assert.equal(state.draftFocusVersion, original.draftFocusVersion);
+      assert.equal(state.draft.text, "SDP_DRAFT_KEEP");
+      assert.deepEqual(state.attachments, []);
+    } else if (hold) {
+      assert.equal(state.completed, 0);
+      assert.equal(state.error, "");
+      assert.equal(state.workspacePath, navigation === "stale-tab" ? alternatePath : path);
+      assert.equal(state.workspacePurpose, "conversation");
+      assert.equal(state.projectId, null);
+      assert.equal(state.draft.text, "SDP_NEWER_DRAFT_KEEP");
+      assert.deepEqual(state.attachments, []);
+    } else {
+      assert.equal(state.error, "", "Creating on the current service must commit Root navigation");
+      assert.equal(state.completed, 1);
+      assert.equal(state.workspacePath, path);
+      assert.equal(state.workspaceIdentity, null, "Standalone Source must not invent an identity");
+      assert.equal(
+        state.activeTabId,
+        original.activeTabId,
+        "Same-directory navigation reuses the tab",
+      );
+      assert.equal(state.tabCount, 1);
+      assert.equal(state.workspacePurpose, "project");
+      assert.equal(state.activeTaskId, null);
+      assert.equal(state.projectId, saved.id);
+      assert.equal(state.taskGroupId, "picker-group");
+      assert.equal(state.draft.projectId, saved.id);
+      assert.equal(state.draft.taskGroupId, "picker-group");
+      assert.equal(state.draft.text, "SDP_DRAFT_KEEP");
+      assert.equal(state.scope.projectId, saved.id);
+      assert.ok(state.draftFocusVersion > original.draftFocusVersion);
+      await page.waitForFunction(() => {
+        const output = document.querySelector('[data-testid="picker-navigation-state"]');
+        return output && JSON.parse(output.textContent).attachments.length === 1;
+      });
+      state = await navigationState(page);
+      assert.deepEqual(state.attachments, [
+        {
+          filename: "picker-attachment.txt",
+          sizeBytes: Buffer.byteLength("project picker attachment"),
+          isFile: true,
+          text: "project picker attachment",
+        },
+      ]);
+      const createdVersion = state.draftFocusVersion;
+      await page.getByTestId("picker-new-task").click();
+      state = await waitForNavigation(page, 2);
+      assert.equal(state.error, "", "New Task must inherit a valid current-service Source project");
+      assert.equal(state.completed, 2);
+      assert.equal(state.projectId, saved.id);
+      assert.equal(state.workspacePath, path);
+      assert.equal(state.workspacePurpose, "project");
+      assert.equal(state.draft.text, "SDP_DRAFT_KEEP");
+      assert.ok(state.draftFocusVersion > createdVersion);
+      const inherited = calls
+        .slice(start)
+        .filter((call) => call.owner === requestOwner && call.method === "prepareSession");
+      assert.equal(inherited.length, 2);
+      assert.equal(inherited[1].args[0].projectId, saved.id);
+      assert.equal(inherited[1].args[0].hostId, undefined);
+    }
     assert.deepEqual(errors, []);
     console.log(`PASS ${name}`);
   } catch (error) {
@@ -253,7 +409,10 @@ async function runPicker({
     console.error("Picker traffic on failure:", JSON.stringify(calls.slice(start), null, 2));
     throw error;
   } finally {
+    hold?.release();
     await context.close();
+    await browser.close();
+    browser = undefined;
   }
 }
 
@@ -264,6 +423,7 @@ try {
       await writeFile(join(path, "not-a-directory.txt"), "picker fixture");
     }),
   );
+  await mkdir(alternatePath);
   const sourceProject = trace(
     "source",
     createProjectService({
@@ -373,10 +533,6 @@ try {
   assert.ok(address && typeof address === "object");
   uiUrl = `http://127.0.0.1:${address.port}`;
   assert.equal((await fetch(uiUrl)).status, 200);
-  browser = await chromium.launch({
-    channel: process.env.PLAYWRIGHT_CHROMIUM_CHANNEL ?? "chrome",
-    headless: true,
-  });
   for (const width of [1024, 390]) {
     for (const theme of ["light", "dark"]) {
       for (const locale of ["zh-CN", "en-US"]) {
@@ -412,8 +568,20 @@ try {
     theme: "dark",
     locale: "zh-CN",
   });
+  for (const navigation of ["prepare-failure", "stale-tab", "stale-draft"]) {
+    await runPicker({
+      url: sourceUrl,
+      home: sourceHome,
+      path: sourcePath,
+      owner: "source",
+      width: 1024,
+      theme: "light",
+      locale: "en-US",
+      navigation,
+    });
+  }
   console.log(
-    "PASS SDP01–03: current Source, local owner, explicit external Host, and real IO errors",
+    "PASS SDP01–03 / PCD01–03: current-service Root navigation, draft handoff/inheritance, external guard, prepare failure and stale results",
   );
 } finally {
   await browser?.close();
