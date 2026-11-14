@@ -140,9 +140,10 @@ export function ProjectCreation({
     admittedHosts.current.set(hostId, host);
     return host;
   };
-  const saved = async (project: VirtualProject) => {
+  const saved = async (project: VirtualProject, requestedHostId?: string) => {
     if (!active.current) return;
-    if (project.hostId !== "local") {
+    // 当前 Source 返回真实 owner 不代表跨设备创建；只有显式外部请求才需要登记控制端入口。
+    if (requestedHostId && requestedHostId !== "local") {
       const host = admittedHosts.current.get(project.hostId);
       if (!host) throw new Error("remote-project.host-removed");
       await remoteService.addEntry({
