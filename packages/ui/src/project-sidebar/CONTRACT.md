@@ -30,7 +30,7 @@ Web 远端 attachment 的整体可选 `windowProjectDirectory` 能力提供窗�
 
 UI 纠偏：分区复用 WorkspacePurposeSection 和原折叠/顺序偏好；项目行恢复旧行高、间距及 hover/focus/touch 操作。项目菜单用非模态右键导航，编辑弹窗独占模态限制。时间线通过插件市场下的筛选菜单开放为「最近更新」。项目加号直接显示名称、设备、源文件夹。ProjectEditor 持有唯一草稿，桌面设备全集从 Source 投影读取，不取项目 open set；无 Source 管理能力的 Web／手机只投影既有 Host 目录，不扩大管理权限。选择设备无连接副作用；有目录须先确认再原子清目录并切设备。离线设备在显式选择文件夹或已有项目时复用 Root 唯一连接向导，保持原项目页签；只有新增设备进入设置。连接层收起期间保留表单。设备切换、取消和卸载使旧目录结果失效。创建前只为没有成员的已识别设备显式登记，已有成员严格复查 membership；远端保存后按原 ID 登记本机入口，登记失败重试不再创建项目。不打开 workspace tab 或 Agent。
 
-桌面本地项目添加目录通过 IPlatformService.selectDirectories 调起系统多选；结果仅合并去重到编辑器草稿，保存才提交。远端与 Web/手机目录浏览通过 projectService.readDirectory(hostId)，不从当前 tab 推导文件服务；DirectoryBrowser 的迟到响应沿用请求序号判定。选择在途与保存/关闭互斥，取消不修改草稿。见 docs/ui/project-local-directory-picker.md。
+桌面本地项目添加目录通过 IPlatformService.selectDirectories 调起系统多选；结果仅合并去重到编辑器草稿，保存才提交。远端与 Web/手机目录浏览通过 projectService.readDirectory(hostId)，不从当前 tab 推导文件服务；创建默认设备表示当前项目服务，目录读取与保存省略 Host，不强制 Source owner 为 local。保存回调保留请求目标，只有显式外部 Host 才登记控制端入口；已有项目和固定目录的显式 Host 不变。DirectoryBrowser 的迟到响应沿用请求序号判定。选择在途与保存/关闭互斥，取消不修改草稿。见 docs/ui/project-local-directory-picker.md。
 
 有源文件夹的新建（含恢复）在 Host 成员登记和 saveProject 前显示本次目录信任确认，展示所选设备及完整 roots。ProjectEditor 是唯一草稿和确认请求 owner；取消保留表单，隐藏/卸载令旧查询与确认失效，单次保存以在途引用去重。确认只授权本次创建，不持久化、不改变 Hook Trust；重复使用目录仍确认，本地零 roots 直接创建。编辑和添加已有远程项目保持原行为；已保存项目的入口登记重试复用 created，不再次创建或确认。见 docs/specs/project-creation-folder-confirmation.md。
 

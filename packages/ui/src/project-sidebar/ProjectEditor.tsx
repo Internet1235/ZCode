@@ -130,15 +130,19 @@ export function ProjectEditor({
   projects: VirtualProject[];
   service: IProjectService;
   onClose(): void;
-  onSaved(project: VirtualProject): Promise<void>;
+  onSaved(project: VirtualProject, requestedHostId?: string): Promise<void>;
   onDeleted?(): Promise<void>;
 }) {
   const { intl } = useZCodeIntl();
   const sidebar = useOptionalProjectDirectory();
   const platform = useOptionalPlatform();
   const [selectedDeviceId, setSelectedDeviceId] = useState(defaultDeviceId ?? "local");
+  // 默认设备表示当前服务；独立 Web 的 owner 并非 local，强传 local 会在读取目录前被拒绝。
   const hostId =
-    project?.hostId ?? fixedFolder?.hostId ?? host?.id ?? (devices ? selectedDeviceId : undefined);
+    project?.hostId ??
+    fixedFolder?.hostId ??
+    host?.id ??
+    (devices && selectedDeviceId !== "local" ? selectedDeviceId : undefined);
   const remote = Boolean(hostId && hostId !== "local");
   const msg = (id: string) => intl.formatMessage({ id: `project.${id}` });
   const [name, setName] = useState(
@@ -162,7 +166,10 @@ export function ProjectEditor({
   const directory = useProjectDirectoryServices(service, hostId);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [created, setCreated] = useState<VirtualProject | null>(null);
+  const [created, setCreated] = useState<{
+    project: VirtualProject;
+    requestedHostId: string | undefined;
+  } | null>(null);
   const [folderTrust, setFolderTrust] = useState<ProjectFolderTrustRequest | null>(null);
   const saveFlight = useRef<{ cancelTrust?: () => void } | null>(null);
   const saveButton = useRef<HTMLButtonElement>(null);
@@ -269,7 +276,7 @@ export function ProjectEditor({
     setError(null);
     try {
       if (created) {
-        await onSaved(created);
+        await onSaved(created.project, created.requestedHostId);
         if (canCommit()) onClose();
         return;
       }
@@ -352,11 +359,11 @@ export function ProjectEditor({
       });
       if (!alive.current) return;
       // 远端创建与本机入口登记分两步；登记失败重试必须复用已创建的项目，不能再生成一个 ID。
-      if (!project) setCreated(saved);
+      if (!project) setCreated({ project: saved, requestedHostId: hostId });
       // 外层聊天可能已换代；保留已保存结果，但不继续登记、导航或关闭新流程。
       if (!canCommit()) return;
       if (!project && !remote) sidebar?.preferences.prepend(saved);
-      await onSaved(saved);
+      await onSaved(saved, hostId);
       // 草稿可能已被关闭或替换；旧登记结果不能关闭后来创建的表单。
       if (canCommit()) onClose();
     } catch (cause) {
