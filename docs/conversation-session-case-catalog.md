@@ -194,6 +194,13 @@ PD12 集成边界：新建项目交接正文与内存附件（同目录也交接
 ## 服务端草稿模型迁移（DMM，2026-11-13）
 
 DMM-01–DMM-13 的前置、动作与断言见[草稿模型迁移规格](chat/draft-model-migration.md#验收用例)。产品语义 accepted：官方 Provider（账号套餐与官方模板）的新建草稿和 Recent 按服务端规则迁移一次；气泡文案只来自规则的 `notice`，按本设备语言取（精确 → 同语种 → 英文 → 不弹），每台设备每个规则版本一次。候选 `packages/desktop/test/e2e/conversation-session/models/manual-review/pending/conversation-session-draft-model-migration.test.ts` 覆盖 DMM-01–08、DMM-11（规则在首发途中到达）与 DMM-12/13（无可用文案不弹、非法条目丢弃并回退英文、长文案布局），同目录 `conversation-session-draft-model-migration-account-plan.test.ts` 覆盖 DMM-09（账号套餐重映射），`conversation-session-draft-model-migration-mobile.test.ts` 覆盖 DMM-10（手机）；运行证据见 coverage matrix。
+PD17–PD19：本次普通 Web 发送修复，规则与 setup/action/assertion 见
+[普通 HTTP 的草稿与首发身份](ui/project-task-draft-lifecycle.md#普通-http-的草稿与首发身份)。
+保留 UUIDv4、显式 Session ID、单 prewarm owner、pending scope 和迟到 ACK 隔离；
+没有安全随机或存储时明确拒绝。浏览器能力/生产源码分配与真实 CLI admission/Provider 请求
+分层记录。产品语义 accepted，生产源码浏览器回归 5/5 通过，未转正；真实首条发送仍未验证，
+不把浏览器复现当作用户 Linux 失败点击证据。
+Windows runtime、发行构建和安装包不在本次修复范围内。
 
 ## 图片预览操作（PIA，2026-10-14）
 

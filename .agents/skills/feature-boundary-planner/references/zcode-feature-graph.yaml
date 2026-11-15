@@ -2645,6 +2645,11 @@ nodes:
           symbol: "persistV4ComposerDraft",
         }
       - {
+          file: "packages/ui/src/v4/composer/composerDraftStore.ts",
+          symbol: "ensurePendingTaskDraft",
+        }
+      - { file: "packages/ui/src/v4/commandFactory.ts", symbol: "createCommandEnvelope" }
+      - {
           file: "packages/ui/src/v4/composer/useDraftConfigControl.ts",
           symbol: "useDraftConfigControl",
         }
@@ -2669,6 +2674,7 @@ nodes:
       - "Historical grant/Plan records establish an observation baseline on entry; only newly observed changes update the mounted Composer. Observation IDs are never persisted in drafts. Reads are side-effect free."
       - "Project/group creation intent accompanies durable text. Project ID isolates Root drafts even when primary roots match; formal session drafts retain workspace/session identity. Accepted user Submission updates frozen project Recent through the pending command registry. A pending task draft ID reuses its directory until accepted and protects later drafts from late acknowledgements."
       - "Creating a project hands the original request target to Root, not the returned storage owner. Current-service Source projects retain their project ID when preparing and inheriting drafts; explicit external requests still require real identity/opener/membership. Save or prepare success alone is not a committed draft navigation."
+      - "Persistent pending draft and createSession identities use secure UUIDv4 even on ordinary HTTP without crypto.randomUUID, preserving explicit Session IDs, original retry envelopes and scope/late-ACK isolation. No secure random source means explicit failure, never Math.random. Prewarm, CLI admission and delivery owners remain unchanged."
 
   - id: "surface.conversation-model-control"
     kind: "ui-surface"

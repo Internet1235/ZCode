@@ -35,7 +35,7 @@ function formatUuid(bytes: Uint8Array): string {
   return segments.map((segment) => Array.from(segment, byteToHex).join("")).join("-");
 }
 
-export function createUuid(): string {
+export function createUuid(options?: { requireSecureRandom?: boolean }): string {
   const runtimeCrypto = globalThis.crypto;
   if (runtimeCrypto?.randomUUID) {
     return runtimeCrypto.randomUUID();
@@ -46,6 +46,9 @@ export function createUuid(): string {
     runtimeCrypto.getRandomValues(bytes);
     return formatUuid(bytes);
   }
+
+  // 普通 HTTP 没有 randomUUID 时仍可用安全随机字节；持久身份不得退到弱随机。
+  if (options?.requireSecureRandom) throw new Error("uuid.secure-random-unavailable");
 
   // 部分移动端 WebView 只有 `crypto` 对象但没有 `randomUUID()`，
   // 之前 UI 初始化直接调用会在首屏崩掉。这里退回到最小可用的随机实现，
