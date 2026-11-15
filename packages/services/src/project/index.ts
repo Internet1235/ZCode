@@ -366,6 +366,7 @@ export function bindRemoteProjectIdentities(
         ...new Set([
           ...tree.projects.flatMap((project) => project.roots.map((root) => root.rootPath)),
           ...tree.tasks.map((task) => task.workspacePath),
+          ...(tree.deletedTasks ?? []).map((task) => task.workspacePath),
         ]),
       ];
       const identities = new Map(
@@ -377,6 +378,15 @@ export function bindRemoteProjectIdentities(
           ...task,
           workspaceIdentity: identities.get(task.workspacePath)!,
         })),
+        // 已删除任务也参与分组清理；遗漏 deleted-only cwd 会留下未登记的历史身份。
+        ...(tree.deletedTasks
+          ? {
+              deletedTasks: tree.deletedTasks.map((task) => ({
+                ...task,
+                workspaceIdentity: identities.get(task.workspacePath)!,
+              })),
+            }
+          : {}),
       };
     },
     readDirectory: (params) => service.readDirectory(params),

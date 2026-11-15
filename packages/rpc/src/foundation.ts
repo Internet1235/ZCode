@@ -77,13 +77,16 @@ export namespace Event {
   export function once<T>(event: Event<T>): Event<T> {
     return (listener) => {
       let fired = false;
-      const disposable = event((e) => {
+      let disposable: IDisposable | undefined;
+      disposable = event((e) => {
         if (!fired) {
           fired = true;
-          disposable.dispose();
+          // 首帧可能在订阅返回前同步到达，资源返回后仍须补做释放。
+          disposable?.dispose();
           listener(e);
         }
       });
+      if (fired) disposable.dispose();
       return disposable;
     };
   }
@@ -143,8 +146,7 @@ export class Emitter<T> implements IDisposable {
       }
 
       return toDisposable(() => {
-        this.listeners.delete(listener);
-        if (this.listeners.size === 0) {
+        if (this.listeners.delete(listener) && this.listeners.size === 0) {
           this.options?.onDidRemoveLastListener?.();
         }
       });
@@ -161,8 +163,11 @@ export class Emitter<T> implements IDisposable {
   }
 
   dispose(): void {
+    if (this.disposed) return;
     this.disposed = true;
+    const hadListeners = this.listeners.size > 0;
     this.listeners.clear();
+    if (hadListeners) this.options?.onDidRemoveLastListener?.();
   }
 }
 
@@ -176,19 +181,61 @@ interface EmitterOptions {
  * 用于 getDelayedChannel 中：先创建 Relay，等 channel promise resolve 后切换 input。
  */
 export class Relay<T> implements IDisposable {
-  private emitter = new Emitter<T>();
-  private inputDisposable: IDisposable = { dispose() {} };
+  private disposed = false;
+  private hasListeners = false;
+  private inputEvent: Event<T> = Event.None;
+  private inputDisposable: IDisposable | undefined;
+  private emitter = new Emitter<T>({
+    onWillAddFirstListener: () => {
+      this.hasListeners = true;
+      this.subscribeInput();
+    },
+    onDidRemoveLastListener: () => {
+      this.hasListeners = false;
+      this.unsubscribeInput();
+    },
+  });
 
   readonly event = this.emitter.event;
 
   set input(event: Event<T>) {
-    this.inputDisposable.dispose();
-    this.inputDisposable = event((e) => this.emitter.fire(e));
+    if (this.disposed) return;
+    this.inputEvent = event;
+    this.unsubscribeInput();
+    this.subscribeInput();
+  }
+
+  private subscribeInput(): void {
+    if (this.disposed || !this.hasListeners || this.inputDisposable) return;
+    let subscription: IDisposable | undefined;
+    const owner = toDisposable(() => subscription?.dispose());
+    // 同步首帧可能退订或换 input；先登记 owner，迟到返回的资源立即释放。
+    this.inputDisposable = owner;
+    try {
+      subscription = this.inputEvent((e) => {
+        // 同步 input 可在资源返回前继续发帧；换源后旧 owner 已失效，不能再投递。
+        if (this.inputDisposable === owner && !this.disposed) this.emitter.fire(e);
+      });
+      if (this.inputDisposable !== owner) subscription.dispose();
+    } catch (error) {
+      if (this.inputDisposable === owner) this.inputDisposable = undefined;
+      owner.dispose();
+      throw error;
+    }
+  }
+
+  private unsubscribeInput(): void {
+    const disposable = this.inputDisposable;
+    this.inputDisposable = undefined;
+    disposable?.dispose();
   }
 
   dispose(): void {
-    this.inputDisposable.dispose();
+    if (this.disposed) return;
+    this.disposed = true;
     this.emitter.dispose();
+    this.unsubscribeInput();
+    this.inputEvent = Event.None;
   }
 }
 
@@ -239,8 +286,12 @@ export class CancellationTokenSource implements IDisposable {
 
   get token(): CancellationToken {
     if (!this._token) {
+      const isCancelled = () => this._isCancelled;
       this._token = {
-        isCancellationRequested: false,
+        // token 是 source 的实时视图，不能把首次读取时的 false 固化下来。
+        get isCancellationRequested() {
+          return isCancelled();
+        },
         onCancellationRequested: this.emitter.event,
       };
     }

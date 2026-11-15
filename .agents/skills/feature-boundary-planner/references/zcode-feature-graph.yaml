@@ -4975,7 +4975,9 @@ nodes:
     codeSeeds:
       - symbol: "createSourceServerWorkspaceService"
         file: "packages/services/src/source-server-workspace/sourceServerWorkspaceService.ts"
-      - file: "packages/zcode-server-cli/src/server-core/http.ts"
+      - symbol: "SourceServerWorkspaceIdentityMapper"
+        file: "packages/services/src/source-server-workspace/sourceServerWorkspaceIdentityChannelServer.ts"
+      - file: "packages/server/src/http.ts"
 
   - id: "persistence.zcode-server-identity"
     kind: "persistence"

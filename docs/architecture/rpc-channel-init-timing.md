@@ -15,7 +15,7 @@ timed out after 1000ms
 Uninitialized ──[收到 Initialize(200)]──→ Idle ──[发送请求]──→ Idle（保持）
 ```
 
-- **Uninitialized**：还没收到服务端 Initialize，所有请求自动排队（`whenInitialized()`），不会超时
+- **Uninitialized**：还没收到服务端 Initialize，请求等待就绪；取消、最后退订和连接 dispose 仍立即撤销发送资格，不等待 Initialize
 - **Idle**：已收到 Initialize，请求立即发出
 
 ## 完整通信流程
@@ -106,6 +106,13 @@ fork host process ──────────→
 - **Remote 模式**：构造时不发 `Initialize`，等 `registerChannel` 全部完成后调 `server.ready()` 手动发送
 
 涉及文件：
-- `packages/rpc/src/channels.ts` — `ChannelServer` 构造函数加 `deferInit` 参数，新增 `ready()` 方法
+
+- `packages/rpc/src/channelServer.ts` — `deferInit` 和 `ready()`；等待注册的请求在超时/取消/退订/dispose 后彻底移除
+- `packages/rpc/src/channelClient.ts` — 初始化前可撤销请求；每轮事件订阅使用独立 ID，迟到 Initialize 不复活旧订阅
 - `packages/rpc/src/logging-middleware.ts` — `LoggingChannelServer` 透传 `ready()`
 - `packages/desktop/src/host/index.ts` — remote 模式传 `deferInit=true`，服务注册后调 `server.ready()`
+
+Initialize 表示该连接已完成装配，不表示任意惰性 proxy 对应的 channel 存在。
+窗口 Controller 必须在连接装配时显式声明能力：Desktop base/scoped attachment 和手机 shared-host
+提供，普通 Source WebSocket 与 Source settings scope 不提供；缺席使用既有 TaskService 路径，
+不能捕获 Unknown channel 后改投另一 owner。不得以延长超时替代正确就绪和生命周期管理。

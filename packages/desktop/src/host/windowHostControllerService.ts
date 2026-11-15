@@ -1067,7 +1067,10 @@ export function createWindowHostControllerRuntime(options: {
           assertCurrentUnreadSource();
           return mutationResult;
         }
-        await refreshSource(resolved, true);
+        // 归档/置顶等已由唯一 Source 提交；刷新失败只报告投影异常，不能诱导重复写入。
+        await refreshSource(resolved, true).catch((error) =>
+          options.onSourceError?.(resolved.scope, "refresh", error),
+        );
         return (
           projection
             .getTasks()

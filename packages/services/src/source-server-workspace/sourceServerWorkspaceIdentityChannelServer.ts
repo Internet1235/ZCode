@@ -4,7 +4,12 @@ import {
   type IChannelServer,
   type IServerChannel,
 } from "@zcode/rpc";
-import { ServiceChannels } from "@zcode/shared";
+import {
+  buildRemoteHostWorkspaceIdentity,
+  parseRemoteWorkspaceIdentity,
+  remoteHostIdFromWorkspaceIdentity,
+  ServiceChannels,
+} from "@zcode/shared";
 import {
   conversationTopicFrameSchema,
   encodeTopicWireFrames,
@@ -27,6 +32,7 @@ const log = createServiceLogger("source-server-workspace-identity");
 export interface SourceServerWorkspaceIdentityMapping {
   stableIdentity: string;
   canonicalIdentity: string;
+  workspacePath: string;
 }
 
 function isPlainRecord(value: object): value is Record<string, unknown> {
@@ -68,9 +74,35 @@ function mapValue(value: unknown, mappings: ReadonlyMap<string, string>): unknow
   ) {
     return value;
   }
+
   return Object.fromEntries(
     Object.entries(value).map(([key, item]) => [key, mapValue(item, mappings)]),
   );
+}
+
+function mapTaskGroupStructure(value: unknown, mappings: ReadonlyMap<string, string>): unknown {
+  if (!value || typeof value !== "object" || !isPlainRecord(value) || !Array.isArray(value.order))
+    throw new Error("task-group.invalid-structure");
+  return {
+    ...value,
+    order: value.order.map((node: unknown) => {
+      if (!node || typeof node !== "object" || !isPlainRecord(node))
+        throw new Error("task-group.invalid-order-node");
+      if (node.type !== "task") return node;
+      if (typeof node.key !== "string") throw new Error("task-group.invalid-task-order-key");
+      // task order 的 key 是复合 JSON，整串映射不会命中；只在分组 read 的结构内解析。
+      const parts: unknown = JSON.parse(node.key);
+      if (
+        !Array.isArray(parts) ||
+        parts.length !== 2 ||
+        typeof parts[0] !== "string" ||
+        typeof parts[1] !== "string"
+      )
+        throw new Error("task-group.invalid-task-order-key");
+      const workspaceKey = mappings.get(parts[0]);
+      return workspaceKey ? { ...node, key: JSON.stringify([workspaceKey, parts[1]]) } : node;
+    }),
+  };
 }
 
 function isTopicWireCandidate(value: unknown): value is TopicWireFrameCandidate {
@@ -164,18 +196,48 @@ function mapTopicWireEvent(
 export class SourceServerWorkspaceIdentityMapper {
   private readonly stableToCanonical = new Map<string, string>();
   private readonly canonicalToStable = new Map<string, string>();
+  private readonly canonicalWorkspaces = new Map<
+    string,
+    { hostId: string; workspacePath: string }
+  >();
 
   public register(mapping: SourceServerWorkspaceIdentityMapping): void {
+    const hostId = remoteHostIdFromWorkspaceIdentity(mapping.stableIdentity);
+    if (
+      !hostId ||
+      parseRemoteWorkspaceIdentity(mapping.stableIdentity)?.kind !== "server" ||
+      buildRemoteHostWorkspaceIdentity(hostId, mapping.workspacePath) !== mapping.stableIdentity
+    )
+      throw new Error("source-server-workspace.invalid-registration");
     this.stableToCanonical.set(mapping.stableIdentity, mapping.canonicalIdentity);
     this.canonicalToStable.set(mapping.canonicalIdentity, mapping.stableIdentity);
+    this.canonicalWorkspaces.set(mapping.canonicalIdentity, {
+      hostId,
+      workspacePath: mapping.workspacePath,
+    });
+  }
+
+  public isRegisteredSourceWorkspace(task: {
+    hostId: string;
+    workspacePath: string;
+    workspaceIdentity?: string;
+  }): boolean {
+    const registered = this.canonicalWorkspaces.get(
+      task.workspaceIdentity?.trim() || task.workspacePath,
+    );
+    // 物理 Source 与历史 authority 分离；裸 cwd 相同不能授权另一设备或未登记身份。
+    return registered?.hostId === task.hostId && registered.workspacePath === task.workspacePath;
   }
 
   public mapIncoming<T>(value: T): T {
     return mapValue(value, this.stableToCanonical) as T;
   }
 
-  public mapOutgoing<T>(value: T): T {
-    return mapValue(value, this.canonicalToStable) as T;
+  public mapOutgoing<T>(value: T, options: { taskGroupStructure?: boolean } = {}): T {
+    const mapped = mapValue(value, this.canonicalToStable);
+    return (
+      options.taskGroupStructure ? mapTaskGroupStructure(mapped, this.canonicalToStable) : mapped
+    ) as T;
   }
 }
 
@@ -183,6 +245,7 @@ class SourceServerWorkspaceIdentityServerChannel<TContext> implements IServerCha
   public constructor(
     private readonly inner: IServerChannel<TContext>,
     private readonly mapper: SourceServerWorkspaceIdentityMapper,
+    private readonly channelName: string,
   ) {}
 
   public async call<T>(
@@ -197,7 +260,9 @@ class SourceServerWorkspaceIdentityServerChannel<TContext> implements IServerCha
       this.mapper.mapIncoming(args),
       cancellationToken,
     );
-    return this.mapper.mapOutgoing(result);
+    return this.mapper.mapOutgoing(result, {
+      taskGroupStructure: this.channelName === ServiceChannels.TaskGroups && command === "read",
+    });
   }
 
   public listen<T>(context: TContext, event: string, arg?: unknown): Event<T> {
@@ -246,7 +311,7 @@ export class SourceServerWorkspaceIdentityChannelServer<
       channelName,
       channelName === ServiceChannels.SourceServerWorkspace
         ? channel
-        : new SourceServerWorkspaceIdentityServerChannel(channel, this.mapper),
+        : new SourceServerWorkspaceIdentityServerChannel(channel, this.mapper, channelName),
     );
   }
 

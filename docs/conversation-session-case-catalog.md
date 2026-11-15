@@ -6259,25 +6259,51 @@ ensureReady/restart 必须拒绝，原实例不关闭且 generation 不变；正
 
 XSG02 Bash description：独立行、进行中组头与组内子项优先展示非空描述；空白／缺失回退命令；展开保留实际命令和输出，非空 description 在展开／收起时均可见，结束后组头使用统计。中英文、深浅主题与桌面/手机宽度浏览器候选验收。
 
+## Source 组织与 RPC 生命周期回归（ORG-RPC）
+
+产品边界 accepted。只修已复现的生命周期与组织缺陷，不改 Windows runtime/发行，
+不恢复 App 业务单测，不操作现有服务、凭据或真实任务。验证入口使用生产模块、内存传输、
+独立临时 SQLite 或浏览器；不自动晋升 CI，不把内存验收当 Linux/fnOS 整机通过。
+
+| Case       | Setup → Action                                                                                   | Assertions                                                                                | 证据 / 状态                                                                                                                 |
+| ---------- | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| ORG01      | 普通 Source 无 Controller；真实注册 Controller 对照 → 归档/恢复/改名/pin/已读与事件订阅          | absent 自然走 TaskService，零幽灵 channel；显式能力仍走原 Controller，不切 owner          | accepted / partial；无 Controller 的归档/恢复/readMeta、两种显式 Controller 入口通过；改名/pin/事件订阅未运行               |
+| ORG02      | 非 local Source 的新任务、历史任务和 deleted facts → prepare/readTree/首次 admit/重复 admit/move | 身份一致，创建 receipt 幂等；只改组结构，不改 cwd/CLI 时间/项目；已删除清引用             | accepted / partial；stable/SSH/local canonical 的 prepare/read/admit/move、receipt 和存储不变量通过；已删除清引用未完整断言 |
+| ORG03      | stable Source + 历史 SSH 或本地 canonical alias；同路径不同 Host → 双向 mapper/分组              | 可信 Source 与已登记 canonical 精确配对；历史 key 不重写；跨 Host 拒绝；topic/binary 保留 | accepted / partial；精确配对、跨 Host/路径拒绝、JSON/Uint8Array/Date/diagnostics 通过；完整 topic/事件映射未运行            |
+| ORG04      | Controller 写前读取失败、实际写失败、写后刷新失败 → mutateTask                                   | 写前/提交失败 reject；已提交不因刷新失败改报失败，记录 refresh；CAS/换代 guard 保留       | accepted / covered（隔离 Controller 层）；写前/提交/写后刷新、已读 CAS 和读取挂起期间 Source 换代通过                       |
+| RPC-LIFE01 | 未注册 channel → cancel/unlisten/timeout/dispose 后迟到 register；正常及超时前注册对照           | 终态零 call/listen、零残余等待计时器；缺失事件返回 EventError；正常请求成功               | accepted / covered（生产 RPC 内存层）；含最后 pending 取消释放 flush、Initialize 前取消/dispose 释放等待                    |
+| RPC-LIFE02 | 一 Event 多消费者 → 最后退订/复订/旧帧；Initialize 前退订及 client.dispose                       | 复订有投递，多消费者共享；旧代不串线；无迟到订阅和残余 handler                            | accepted / covered（生产 RPC 内存层）；同步首帧关闭、复订与旧帧隔离通过                                                     |
+| RPC-LIFE03 | 先取/后取/预取消 token；delayed route 无/有/撤销消费者 → resolve/复订/dispose                    | 实时取消状态、幂等通知、预取消零调用；无消费者零上游、last 释放、复订正常、dispose 不复活 | accepted / covered（生产 Foundation/DelayedChannel 内存层）；含同步首帧退订和换源后的旧帧隔离                               |
+
+修复后隔离复验：[组织 runner](../packages/web/test/e2e/source/task-organization.mjs) 13/13、
+[RPC runner](../packages/web/test/e2e/source/rpc-lifecycle.mjs) 17/17，均退出 0。
+数量是各 runner 的场景总数，不代表 ORG01–03 的全部动作已覆盖。组织 runner 使用专属临时
+SQLite，RPC runner 精确推进 deadline/flush 并断言资源数量，不用固定睡眠猜就绪。
+没有真实 Agent、Linux/fnOS 整机、SSH 或手机传输证据；APD13 的浏览器结果另记在下节。
+
+剪枝：不重放已提交业务命令、不改 transport 可靠性或 timeout 长度、不修改历史 migration；
+普通 IO 读取失败仍按既有 owner 报错，不增加另一写入路径。
+
 ## 归档永久删除（APD）
 
 2026-11-04，产品边界 accepted，已实施，覆盖按实际证据分项记录。规格：[归档管理永久删除方案](superpowers/specs/2026-09-11-archive-management.md#2026-11-04归档会话永久删除)。
 这些是新行为的验收目标，不继承 ARM/TSL/PJM 的历史通过状态。普通会话和项目删除保持原合同。
 
-| Case  | Setup → Action                                                               | Assertions                                                                                                                           | 证据与状态                                                                      |
-| ----- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
-| APD01 | 归档根含消息、内部历史、owned child、独立 fork、独占附件 → 确认永久删除      | 根/owned child 的记录和可删文件消失；fork、工作区文件、分享不变；Host 无标题/正文索引残留                                            | SQLite + 文件 + UI；accepted / partial，见覆盖矩阵                              |
-| APD02 | 另一会话引用目标的部分附件 → 预检并确认                                      | 保留清单列具体附件及原因；目标会话真正删除，其余独占文件删除；引用会话冷启后仍可读附件                                               | 文件 + artifact 读取 + SQLite；accepted / partial，见覆盖矩阵                   |
-| APD03 | 根/子会话运行、待交互或仍可能启动工作 → 预检与执行                           | 逐项显示阻止原因；不自动停止，不写删除标记，不动文件；用户停止后可重新预检                                                           | runtime + 文件 + UI；accepted / partial，见覆盖矩阵                             |
-| APD04 | 多于 50 条、折叠分组、搜索过滤、混合可删/运行/离线 → 打开确认、取消、再确认  | 先显示可取消的检查弹窗；数量含未挂载匹配项；三份清单完整；取消立即停发后续预检、迟到结果不污染新弹窗，零删除写入；只删明确可执行集合 | UI + 协议目标集合 + SQLite；accepted / partial，见覆盖矩阵                      |
-| APD05 | 确认后取消归档、产生新引用、产生子会话或新运行 → 执行                        | 原子复检；发生变化的项不开始破坏动作并说明原因；后来归档项不加入                                                                     | 可控竞态 + runtime/SQLite；accepted / partial，见覆盖矩阵                       |
-| APD06 | 多项互相引用，其中一项执行前被保留 → 执行                                    | 按最终可删集合重算引用；不删保留会话仍需要的附件，不静默改变用户确认的例外                                                           | 引用/文件 + 受控停点；accepted / partial，见覆盖矩阵                            |
-| APD07 | 文件部分删除失败、SQL 失败、Host 清理失败 → 关闭页面/重启后重试              | 区分未开始与清理未完成；不得恢复为可运行会话；同一操作幂等收敛，无伪成功                                                             | 故障注入 + SQLite/文件 + UI；accepted / partial，见覆盖矩阵                     |
-| APD08 | 两窗口/进程并发发送、fork、发布旧 snapshot、重放旧创建命令 → 与永久删除交错  | 已接受删除封住写入；拒绝旧命令，同一 session 不复活；不阻断无关会话                                                                  | 多进程 runtime + 重启/SQLite；accepted / partial，见覆盖矩阵                    |
-| APD09 | 同路径/同显示标题、不同 Host/identity；远端在线/离线/能力不足                | 保留完整身份；只操作原 source；离线/不支持明确列出；不退化软删除或排队待删                                                           | Controller/RPC + 真实远端存储；accepted / partial，见覆盖矩阵                   |
-| APD10 | 服务端已接受后回包丢失；随后重连；另一手机端有旧缓存                         | 显示结果未知；查询/重试同一操作；同一已删除身份不重建；各端清草稿/缓存                                                               | 网络停点 + desktop continuous/mobile replayable；accepted / partial，见覆盖矩阵 |
-| APD11 | 大量例外、长文件名、0 个可删；中英/明暗/宽窄屏/键盘                          | 异常可见可滚动；确认按钮精确 N；0 禁用；焦点取消；无误提交与横向溢出                                                                 | GUI 截图 + 可访问性；accepted / partial，见覆盖矩阵                             |
-| APD12 | 已软删除历史、项目/普通删除、目录级记忆、分享、备份均存在 → 执行归档永久删除 | 非目标不变；不调用分享接口，不自动清历史、不删目录级数据；保留范围文案准确                                                           | 调用记录 + 对照文件/DB 哈希；accepted / partial，见覆盖矩阵                     |
+| Case  | Setup → Action                                                                                             | Assertions                                                                                                                           | 证据与状态                                                                                                                                           |
+| ----- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| APD01 | 归档根含消息、内部历史、owned child、独立 fork、独占附件 → 确认永久删除                                    | 根/owned child 的记录和可删文件消失；fork、工作区文件、分享不变；Host 无标题/正文索引残留                                            | SQLite + 文件 + UI；accepted / partial，见覆盖矩阵                                                                                                   |
+| APD02 | 另一会话引用目标的部分附件 → 预检并确认                                                                    | 保留清单列具体附件及原因；目标会话真正删除，其余独占文件删除；引用会话冷启后仍可读附件                                               | 文件 + artifact 读取 + SQLite；accepted / partial，见覆盖矩阵                                                                                        |
+| APD03 | 根/子会话运行、待交互或仍可能启动工作 → 预检与执行                                                         | 逐项显示阻止原因；不自动停止，不写删除标记，不动文件；用户停止后可重新预检                                                           | runtime + 文件 + UI；accepted / partial，见覆盖矩阵                                                                                                  |
+| APD04 | 多于 50 条、折叠分组、搜索过滤、混合可删/运行/离线 → 打开确认、取消、再确认                                | 先显示可取消的检查弹窗；数量含未挂载匹配项；三份清单完整；取消立即停发后续预检、迟到结果不污染新弹窗，零删除写入；只删明确可执行集合 | UI + 协议目标集合 + SQLite；accepted / partial，见覆盖矩阵                                                                                           |
+| APD05 | 确认后取消归档、产生新引用、产生子会话或新运行 → 执行                                                      | 原子复检；发生变化的项不开始破坏动作并说明原因；后来归档项不加入                                                                     | 可控竞态 + runtime/SQLite；accepted / partial，见覆盖矩阵                                                                                            |
+| APD06 | 多项互相引用，其中一项执行前被保留 → 执行                                                                  | 按最终可删集合重算引用；不删保留会话仍需要的附件，不静默改变用户确认的例外                                                           | 引用/文件 + 受控停点；accepted / partial，见覆盖矩阵                                                                                                 |
+| APD07 | 文件部分删除失败、SQL 失败、Host 清理失败 → 关闭页面/重启后重试                                            | 区分未开始与清理未完成；不得恢复为可运行会话；同一操作幂等收敛，无伪成功                                                             | 故障注入 + SQLite/文件 + UI；accepted / partial，见覆盖矩阵                                                                                          |
+| APD08 | 两窗口/进程并发发送、fork、发布旧 snapshot、重放旧创建命令 → 与永久删除交错                                | 已接受删除封住写入；拒绝旧命令，同一 session 不复活；不阻断无关会话                                                                  | 多进程 runtime + 重启/SQLite；accepted / partial，见覆盖矩阵                                                                                         |
+| APD09 | 同路径/同显示标题、不同 Host/identity；远端在线/离线/能力不足                                              | 保留完整身份；只操作原 source；离线/不支持明确列出；不退化软删除或排队待删                                                           | Controller/RPC + 真实远端存储；accepted / partial，见覆盖矩阵                                                                                        |
+| APD10 | 服务端已接受后回包丢失；随后重连；另一手机端有旧缓存                                                       | 显示结果未知；查询/重试同一操作；同一已删除身份不重建；各端清草稿/缓存                                                               | 网络停点 + desktop continuous/mobile replayable；accepted / partial，见覆盖矩阵                                                                      |
+| APD11 | 大量例外、长文件名、0 个可删；中英/明暗/宽窄屏/键盘                                                        | 异常可见可滚动；确认按钮精确 N；0 禁用；焦点取消；无误提交与横向溢出                                                                 | GUI 截图 + 可访问性；accepted / partial，见覆盖矩阵                                                                                                  |
+| APD12 | 已软删除历史、项目/普通删除、目录级记忆、分享、备份均存在 → 执行归档永久删除                               | 非目标不变；不调用分享接口，不自动清历史、不删目录级数据；保留范围文案准确                                                           | 调用记录 + 对照文件/DB 哈希；accepted / partial，见覆盖矩阵                                                                                          |
+| APD13 | 普通 HTTP 无 randomUUID、有 getRandomValues；两 fake 归档目标及无安全随机源对照 → 生产 hook 预检/确认/提交 | 每目标独立合法 UUID，完整 identity/remoteSessionId/revision 不丢；取消零提交；缺少安全随机明确失败、零 RPC/Math.random               | accepted / covered（隔离浏览器层）；[HTTP runner](../packages/web/test/e2e/source/archive-http.mjs) 11/11，零真实删除，不替代 CLI 物理清理或手机传输 |
 
 剪枝：强制删除运行任务、自动删除独立 fork、分享联动、离线新增待删队列、后台附件 GC、全盘擦除。
 扩展既有 ARM02/03 和 TSL39，并补充手机配对与 CLI 持久化回归；普通软删除及 PJM 项目删除不改合同。未新增或晋升 CI 用例。
