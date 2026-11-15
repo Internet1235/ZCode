@@ -236,11 +236,8 @@ N=0 时禁止确认。部分可执行时明确写“另有 M 个会话本次不�
 成功、保留、跳过、未完成的结果按项报告。不存在失败项也提示实际保留的共享附件数量。
 失败详情留在归档管理内供重试，不能只有瞬时 toast。页面关闭不撤销已被权威端接受的删除。
 
-普通 HTTP 不要求浏览器暴露 crypto.randomUUID。每个确认后仍可执行的目标在提交时，通过共享
-createUuid({ requireSecureRandom: true }) 使用 randomUUID 或 getRandomValues 分配自己的 operationId；不共用整批 ID，不使用
-Math.random。无安全随机源时该项明确失败且不发送删除 RPC。预检 revision、完整 workspace identity、
-remoteSessionId 和目标去重保持不变。APD13 用生产归档 hook + mutation adapter 与 fake 任务在独立
-浏览器验证，零真实删除；它不替代 APD01–12 的 CLI 物理删除和手机传输证据。
+永久删除逐目标用共享安全 UUID helper 分配 operationId；普通 HTTP 可使用 getRandomValues，
+无安全随机源时明确失败且不发送删除 RPC。预检 revision、完整身份和目标去重保持不变。
 
 #### 2026-11-06：预检在弹窗内进行
 
@@ -434,7 +431,7 @@ TSL39 后续回放描述已更新。此处登记差异，不根据旧图改变�
 本地/在线远端/离线，desktop continuous/mobile replayable，执行前变化/部分失败/回包丢失/冷启。
 不展开模型/provider 全排列；清理不发模型请求。明暗、中英文、宽/窄屏做代表布局验证。
 
-accepted case 为 APD01–APD13，定义见 [case catalog](../../conversation-session-case-catalog.md#归档永久删除apd)。
+accepted case 为 APD01–APD12，定义见 [case catalog](../../conversation-session-case-catalog.md#归档永久删除apd)。
 覆盖状态见 [coverage matrix](../../testing/conversation-session-e2e-coverage-matrix.md#归档永久删除apd)。
 各用例按实际运行证据标记覆盖，未运行的远端、平台和故障组合不计为通过。
 

@@ -992,41 +992,10 @@ Controller 的元数据 snapshot/gap 协调沿用既有协议；会话桌面 con
 
 全新 URL Server 工作目录没有 SSH/WSL/Docker route hint 时，独立 Host 提供自身稳定 server identity 作为初次 canonical key；已登记 alias 与有历史的 legacy key 始终优先，不因入口升级改写旧 CLI identity。新 alias 允许合法 server route，真实 IO 仍使用 cwd。
 
-独立 Source 的项目服务在内部 readTree（含 deletedTasks）、prepareSession 和 resolveSessionDirectories
-返回前，复用同一 workspace alias service 登记真实目录并补齐 canonical identity。分组事实解析与
-自动化执行使用这个同一服务实例，不只在最外层 RPC 包装，也不丢弃 prepare 返回的身份。
-对外 mapper 返回 stable identity；hostId 始终表示可信物理持库 Source，不随历史 canonical authority
-全局改写。任务引用的出站 host/identity 仅按已登记的整对映射恢复稳定 Source，普通 hostId、路径、
-文本和 topic grammar 以外的复合字符串不做替换。
-
-分组结构的 `members[].workspaceKey` 与 `order[].key` 必须使用同一出站身份。
-后者只按既有 `JSON.stringify([workspaceKey, taskId])` grammar 在 task-group structure 的 order
-字段转译已登记 workspaceKey；不修改 taskId、不解析其他任意 JSON 文本，不改仓库中的 canonical key。
-
-分组默认仍校验 identity authority 与 hostId 一致；独立 Source 的历史 canonical key 例外必须由
-同一 mapper 的已登记 stable↔canonical 配对证明 host + 真实目录 + identity，并由所属项目树
-再次精确核对任务事实。不能按裸路径放行、将 Source 改成 local，或使用任意 legacy authority 路由。
-历史 CLI key、cwd、分组持久化 key、alias ledger 和 migration checksum 不因本修复重写。
-登记按 Source 实例/路径复用在途及成功结果，失败删除缓存并显式返回；不增加 TTL 或第二身份 owner。
-
-```mermaid
-sequenceDiagram
-    participant P as Source 项目服务 / 分组事实读取
-    participant A as 既有 alias service + mapper
-    participant R as RPC stable 边界
-    P->>A: 真实目录 resolveWorkspace（每实例复用）
-    A->>A: 保留 canonical key，登记 stable↔canonical
-    A-->>P: canonical identity + 可信 Source host
-    P-->>R: 树 / prepare / deleted facts
-    R-->>R: 仅转译已登记 identity/任务引用配对
-    R->>P: 组织命令，Source 配对校验 + 权威事实复检
-```
-
-窗口 Controller 是显式可选能力，不是 Source 的默认服务。普通独立 Source 使用 TaskService
-组织命令与既有 state:projects/state:task-groups 通知；Desktop base/scoped 和手机 shared-host
-保留实际注册的 Controller。Source settings scope 不获得窗口能力。Controller 的提交前读取失败
-或写入失败仍拒绝；提交后的投影刷新失败只报告 refresh 错误，不把已提交归档/改名/置顶/删除
-伪装成可重试写失败。CAS、owner/lease、Source 换代防护和 continuous/replayable 边界不变。
+独立 Source 不额外包装内部项目树或执行准备的身份。分组由可信持库 Host 限定目标，
+再按原始项目树精确核对 workspaceKey、taskId 和真实目录；外部 attachment 的 stable/canonical 映射不变。
+分组出站 members.workspaceKey 与 order.key 保持一致，order 只解析既有 JSON 二元组，不改存储键。
+Controller 仅在连接明确提供时使用；普通 Source 沿用 TaskService。提交后刷新失败不否定已提交写入。
 
 H2 实施边界：设置页候选通过纯项目目录读取（readProjects），本机所有未删除项目 roots 与仍保留、在线远端项目 roots 按 workspaceIdentity/path 去重；不读取 task tree，不借 tab 成员判断目录存在。tab 仅补充已存在的 remoteSessionId/localWorkspacePath。候选使用配置目录类型，禁止合成 tab ID 或 fake session。远端响应返回前重读成员/入口，移除后重加也按 membership 拒绝旧结果。
 

@@ -19,7 +19,7 @@ export function createTaskGroupService(options: {
   database(): Promise<DatabaseSync>;
   resolveTasks(tasks: GroupTaskRef[]): Promise<GroupTaskFact[]>;
   afterChange(): Promise<void>;
-  isRegisteredSourceWorkspace?: (task: GroupTaskRef) => boolean;
+  ownerHostId?: string;
 }): ITaskGroupService {
   const taskSchema = z
     .object({
@@ -30,10 +30,10 @@ export function createTaskGroupService(options: {
     })
     .strict()
     .refine(
-      // 历史 canonical authority 不等于物理 Source；例外只由该实例已登记的精确配对授权。
+      // 历史 identity 的 authority 可能不是持库 Source；仅非 local 放行原始树复检，本机仍保留 authority 校验。
       (task) =>
-        options.isRegisteredSourceWorkspace
-          ? options.isRegisteredSourceWorkspace(task)
+        options.ownerHostId && options.ownerHostId !== "local"
+          ? task.hostId === options.ownerHostId
           : (remoteHostIdFromWorkspaceIdentity(task.workspaceIdentity ?? "") ?? "local") ===
             task.hostId,
       "task-group.host-identity-mismatch",

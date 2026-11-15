@@ -16,8 +16,6 @@ export {
 import {
   createProjectDataPort,
   createProjectService,
-  bindRemoteProjectIdentities,
-  createRemoteIdentityRegistrationCache,
   createTaskAutoArchiveScheduler,
   IProjectService,
   shouldRescanTaskAutoArchive,
@@ -1346,9 +1344,6 @@ export function createLocalServices(options: {
   /** 可信 Server Core 注入，区分物理持库 Host 与历史 workspace canonical route。 */
   projectStorageHostId?: string;
   sourceServerWorkspaceService?: ISourceServerWorkspaceService;
-  isRegisteredSourceWorkspace?: Parameters<
-    typeof createTaskGroupService
-  >[0]["isRegisteredSourceWorkspace"];
   resolveProjectHostService?: (hostId: string) => Promise<IProjectService>;
   /** 只取已在线来源的原始项目快照，不触发 identity 迁移、连接或 Agent 启动。 */
   resolveAppControlDiscoverySource?: (hostId: string) => Promise<AppControlDiscoveryConnection>;
@@ -2344,7 +2339,7 @@ export function createLocalServices(options: {
     database: () => taskIndexRepo.getOrganizationDatabase(),
     afterChange: publishProjectChange,
   });
-  const rawProjectService = createProjectService({
+  const projectService = createProjectService({
     directories: {
       home: async () => (await systemService.info()).homedir,
       read: (params) => fileService.readdir(params),
@@ -2372,20 +2367,9 @@ export function createLocalServices(options: {
       }),
     },
   });
-  const sourceWorkspaceService = options.sourceServerWorkspaceService;
-  const registerSourceIdentity = createRemoteIdentityRegistrationCache();
-  // 分组事实、项目 RPC 与执行准备必须共享 canonical 实例，不能各自按历史 authority 推断 owner。
-  const projectService = sourceWorkspaceService
-    ? bindRemoteProjectIdentities(rawProjectService, (workspacePath) =>
-        registerSourceIdentity(sourceWorkspaceService, workspacePath, async () => {
-          const result = await sourceWorkspaceService.resolveWorkspace({ workspacePath });
-          return result.canonicalWorkspaceKey;
-        }),
-      )
-    : rawProjectService;
   const taskGroupService = createTaskGroupService({
     database: () => taskIndexRepo.getOrganizationDatabase(),
-    isRegisteredSourceWorkspace: options.isRegisteredSourceWorkspace,
+    ownerHostId: options?.projectStorageHostId,
     resolveTasks: async (refs) => {
       // 只读所属 Host 的权威目录；项目路由不会为分组建立连接或启动 Agent。
       const hostIds = [...new Set(refs.map((task) => task.hostId))];
@@ -2415,6 +2399,7 @@ export function createLocalServices(options: {
   const prepareProjectExecution = async (projectId: string) => ({
     ...(await projectService.prepareSession({ projectId })),
     hostId: options?.projectStorageHostId ?? "local",
+    workspaceIdentity: undefined,
   });
   let appControlService: AppControlService | undefined;
   // 受管 worktree 的删除租约：worktree 服务取得，Agent 服务与终端服务据此拒绝新操作（§8.3）。
@@ -3653,7 +3638,6 @@ export async function createServerHostServices(options: {
       buildServerRemoteWorkspaceIdentity({ serverId: options.sourceServerId, workspacePath }),
     onResolved: ({ workspacePath, canonicalWorkspaceKey }) => {
       workspaceIdentityMapper.register({
-        workspacePath,
         stableIdentity: buildServerRemoteWorkspaceIdentity({
           serverId: options.sourceServerId,
           workspacePath,
@@ -3671,8 +3655,6 @@ export async function createServerHostServices(options: {
     topicResourceRelayChannel: options.topicResourceRelayChannel,
     projectStorageHostId,
     sourceServerWorkspaceService,
-    isRegisteredSourceWorkspace: (task) =>
-      workspaceIdentityMapper.isRegisteredSourceWorkspace(task),
   });
   return { services, workspaceIdentityMapper, migrationFailedPathCount };
 }
