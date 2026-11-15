@@ -29,6 +29,7 @@ export function createMessagePortServiceConnection(
     deviceSyncStateService?: boolean;
     extensionsService?: boolean;
     managedWorktreeService?: boolean;
+    windowControllerService?: boolean;
   } = {},
 ): MessagePortServiceConnection {
   logMessagePortDebug("[messageport] creating protocol and client...");
@@ -67,6 +68,7 @@ export function connectViaMessagePort(
     deviceSyncStateService?: boolean;
     extensionsService?: boolean;
     managedWorktreeService?: boolean;
+    windowControllerService?: boolean;
   } = {},
 ): IServiceAccessor {
   return createMessagePortServiceConnection(port, options).services;

@@ -15,28 +15,33 @@ export type {
   GroupTaskFact,
 } from "#src/task-groups/contract.js";
 
-const taskSchema = z
-  .object({
-    hostId: z.string().min(1),
-    workspacePath: z.string().min(1),
-    workspaceIdentity: z.string().trim().min(1).optional(),
-    taskId: z.string().min(1),
-  })
-  .strict()
-  .refine(
-    (task) =>
-      (remoteHostIdFromWorkspaceIdentity(task.workspaceIdentity ?? "") ?? "local") === task.hostId,
-    "task-group.host-identity-mismatch",
-  );
-const nodeSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("group"), groupId: z.string().min(1) }).strict(),
-  z.object({ type: z.literal("task"), task: taskSchema }).strict(),
-]);
 export function createTaskGroupService(options: {
   database(): Promise<DatabaseSync>;
   resolveTasks(tasks: GroupTaskRef[]): Promise<GroupTaskFact[]>;
   afterChange(): Promise<void>;
+  isRegisteredSourceWorkspace?: (task: GroupTaskRef) => boolean;
 }): ITaskGroupService {
+  const taskSchema = z
+    .object({
+      hostId: z.string().min(1),
+      workspacePath: z.string().min(1),
+      workspaceIdentity: z.string().trim().min(1).optional(),
+      taskId: z.string().min(1),
+    })
+    .strict()
+    .refine(
+      // 历史 canonical authority 不等于物理 Source；例外只由该实例已登记的精确配对授权。
+      (task) =>
+        options.isRegisteredSourceWorkspace
+          ? options.isRegisteredSourceWorkspace(task)
+          : (remoteHostIdFromWorkspaceIdentity(task.workspaceIdentity ?? "") ?? "local") ===
+            task.hostId,
+      "task-group.host-identity-mismatch",
+    );
+  const nodeSchema = z.discriminatedUnion("type", [
+    z.object({ type: z.literal("group"), groupId: z.string().min(1) }).strict(),
+    z.object({ type: z.literal("task"), task: taskSchema }).strict(),
+  ]);
   const repository = async () => new TaskGroupRepository(await options.database());
   const changed = async (run: (repo: TaskGroupRepository) => void) => {
     const repo = await repository();

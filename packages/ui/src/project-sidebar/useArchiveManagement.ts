@@ -1,4 +1,5 @@
 import { remoteHostLabel } from "@/project-sidebar/RemoteHostSection.js";
+import { createUuid } from "@zcode/shared";
 import type { V4SessionDeletionPreview } from "@zcode/shared/zcode-protocol-v4";
 import { useEffect, useRef, useState } from "react";
 import type { ProjectTask } from "@/project-sidebar/contract.js";
@@ -180,11 +181,12 @@ export function useArchiveManagement() {
           if (operation === "delete") {
             const approved = previews.get(archiveTaskKey(task));
             if (!approved) continue;
+            // 普通 HTTP 无 randomUUID 时使用安全随机字节；删除操作 ID 不得退到弱随机。
             const result = await permanentlyDeleteProjectTask(
               { service, controller },
               task,
               approved.preview.revision,
-              crypto.randomUUID(),
+              createUuid({ requireSecureRandom: true }),
               approved.remoteSessionId,
             );
             if (result.status !== "deleted") {

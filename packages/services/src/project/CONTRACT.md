@@ -10,6 +10,11 @@
 
 装配器用 `createRemoteIdentityRegistrationCache` 包住 resolver：同一物理连接内同一路径只向远端登记一次，并发调用共用同一次登记，失败不缓存。物理连接由装配器传入（Registry handle 的 `physicalOwner()` 或 Manager 连接的 `services`），不能用跨重连不换代的 logical handle。工作区打开的身份登记不经过这个去重。规则见 `docs/remote/project-first-remote-navigation-spec.md` §2.1b。
 
+独立 Source 在内部装配同一 identity decorator，resolver 返回 alias owner 的 canonical key；外部 attachment
+仍返回 stable key，由既有 mapper 转译。readTree 的任务与 deletedTasks 一起准备身份，分组事实 resolver
+和 prepareProjectExecution 消费同一实例，不丢弃返回身份。hostId 保持可信物理 Source，不改历史存储键。
+已登记 canonical/Source 配对只在分组精确校验边界使用，不放宽 Project 的 Host 路由。
+
 readProjects 只查询项目/roots，不加载任务或触发 Agent，用于目录管理；readTree 同样只读，两者都不触发自动归档。旧 settings 集合由本机提交的项目/入口派生；窗口只写 lastActiveWorkspace。派生端口不得调用 settings 或网络，设置文件锁内重读，防止删除入口被迟到响应复活。
 
 缺少 virtualProjects 握手能力的远端只使用单 root 读适配器。它读取远端旧 app 数据，不写本机项目，不启动 Agent，项目组织操作显式拒绝；创建/恢复只返回既有 cwd 与空附加目录。合成 ID 由 host/cwd 稳定导出，升级时只允许入口的版本 CAS 解析，不形成持久权威项目。
