@@ -41,6 +41,88 @@
 重复点击和并发准备复用同一个准备结果；不能只挡住导航而仍创建多个目录。
 不得全局改变无参 prepareSession 的语义，Bots、自动化及其他调用方仍有自己的目录准备语义。
 
+### 普通 HTTP 的草稿与首发身份
+
+普通 Web 直接连接 Server 的 `/ws`。局域网 IP/主机名的普通 HTTP 页面不是安全上下文，
+浏览器可能不提供 `crypto.randomUUID()`，但仍提供 `crypto.getRandomValues()`。
+不能以 `randomUUID` 缺席认定目录无权限、Server 离线或 Agent 创建失败。
+
+`createCommandEnvelope` 的 `createSession` 和 `ensurePendingTaskDraft` 复用 shared 的
+UUIDv4 分配规则，必须使用安全随机源：优先 `randomUUID`，否则使用 `getRandomValues`
+并设置 UUIDv4 version/variant。两者均不可用时明确抛错，不为持久身份降级到
+`Math.random`。shared 既有临时 ID 调用方的默认兼容行为不变。
+
+- Session ID 保持 `sess_<UUIDv4>`，显式 `payload.sessionId` 原样保留。
+- Session ID 只在首次构造创建信封时分配；重试沿用原信封，不重新生成 Session/command ID。
+- pending draft 先持久保存身份再准备目录；同 clientNamespace/hostId/projectId 复用原身份。
+- 存储不可用仍明确报 `composer.draft-storage-unavailable`；迟到 ACK 只消费匹配的旧草稿。
+- 不新增预热 owner、创建入口、接受队列或重试定时器；首发仍等待原 prewarm 的创建结果。
+- 普通 Web、Desktop continuous 和手机 replayable 共用身份分配规则，但各自的连接、
+  owner/lease、workspaceIdentity 与恢复合同不变。
+
+```mermaid
+sequenceDiagram
+    participant Root as Root / pending draft owner
+    participant Store as 客户端草稿存储
+    participant Prewarm as 原 prewarm owner
+    participant Factory as Command factory
+    participant CLI as CLI admission owner
+    Root->>Store: 安全 UUIDv4，保存 draftId
+    Root->>Root: 按原 draftId 准备真实目录
+    Prewarm->>Factory: 构造一次 createSession 信封
+    Factory-->>Prewarm: sess_UUIDv4 + 原 commandId
+    Prewarm->>CLI: 原 transport / createSession
+    CLI-->>Prewarm: 原创建结果
+    Root->>CLI: 同一 session 的首条 sendText
+    CLI-->>Root: accepted / 可核实的 duplicate
+    Root->>Store: 消费匹配 draftId，保留下一份草稿
+```
+
+#### 本次发送修复的影响与验收边界
+
+变更层级为 validation、commit-effect、persistence；仅修复普通 HTTP 下阻断消息发送的
+身份分配。Windows runtime、发行构建、复制报错、凭据存储、项目导航、文件权限及监控不在范围内。
+
+| UI 场景           | 共享实现 / 草稿 owner                     | 默认与校验                              | 提交 / 权威落点                                  | 模式与隔离                                         |
+| ----------------- | ----------------------------------------- | --------------------------------------- | ------------------------------------------------ | -------------------------------------------------- |
+| 项目新任务首发    | Root → 原 prewarm → command factory       | 原项目、模型与目录校验；安全随机 UUIDv4 | 原 createSession/sendText；CLI 事实、Host 组织态 | must-inspect；不能换项目、cwd 或 owner             |
+| 未归类任务新建    | pending draft store → Root → 同一发送路径 | 原 scope 与存储校验                     | prepareSession；客户端 pending 引用              | must-inspect；先保存、同 scope 复用、迟到 ACK 隔离 |
+| 既有 Session 续发 | SessionPane → 原 transport                | 原信封 guards                           | 原 sendText / CLI                                | invariant-only；不重新分配 Session                 |
+| Desktop / 手机    | 相同 factory/store，各自连接 owner        | 原 continuous / replayable guards       | 原 Host 路由与 CLI admission                     | invariant-only；不新增 Host 或远控运行时           |
+
+共享的是安全 UUIDv4 prior art、创建信封与 pending 身份；项目目录、未归类目录及连接恢复
+刻意不同。模型候选、权限、附件、Recent 和正式会话的持久化规则均沿用本规格，不扩展行为。
+must-inspect 为两个分配点及 shared helper；原 prewarm/SessionPane/Host/CLI 为不变量验证；
+不把身份分配或 HTTP ready 当作发送成功。
+
+源码种子与直接路径已通过源码和引用查询核对：`createCommandEnvelope`、
+`ensurePendingTaskDraft`、`createUuid`、原 prewarm 与 Root。codegraph 工具不可用，
+未执行 depth-2 impact/seed 检查；不宣称静态可达即产品影响。语义图只补两个精确分配种子
+及安全随机不变量，不扩展其他 UUID 调用方。普通 Web 未注册本地 TTFT observer，
+其条件性随机分配不属于本次已确认阻断。
+
+裁决：用户要求修复 Windows/Linux 不能正常发送；已有身份、单 owner 和拒绝副作用规则保留。
+维度仅取可信/不安全 HTTP、显式/自动 Session ID、同/异 scope、accepted/迟到 ACK、
+安全随机/存储不可用。复制、凭据、一般 ACL、所有浏览器/远端平台组合剪枝为范围外；
+缺少完整用户 Linux 失败点击日志，不将浏览器能力复现归因为用户现场的唯一原因。
+无新增产品裁决问题；浏览器身份分配与真实发送的执行证据分别记录，不相互替代。
+
+| ID   | 前置 / 动作                                                | 断言                                                                                     | 必要证据 / 状态                                                             |
+| ---- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| PD17 | 可信及非可信 HTTP 页面 → 新建草稿、预热、发送首条文本      | 两种环境分配合法 UUIDv4；首发等待同一创建；CLI 接纳原 session 的输入                     | 浏览器能力与真实生产分配通过；原创建/发送回执及 Provider 请求未验证         |
+| PD18 | 同 scope 切走/刷新、显式 Session ID、旧草稿 ACK → 再次新建 | 身份与目录引用复用；显式 ID 不覆盖；原信封身份不变；跨 scope 与下一份草稿不被旧 ACK 清除 | 浏览器 localStorage、真实 factory/store 通过；原信封两次 RPC 回放未验证     |
+| PD19 | 无安全随机源或存储被拒绝 → 分配持久身份                    | 明确失败、无弱随机身份、无持久写入及目录准备副作用                                       | 安全随机缺失、storage getter/setItem 拒绝通过；目录准备未装配，副作用未验证 |
+
+浏览器验收入口为 [send-http.mjs](../../packages/web/test/e2e/source/send-http.mjs)，不恢复 App 业务单测。
+执行使用独立 Edge 浏览器与动态 loopback HTTP；非可信域名通过本轮浏览器的 resolver 映射，
+源码不发往第三方，正常 HTTP 不替换 crypto。可信/非可信正向及三类负向共 5/5 通过；
+覆盖 clientNamespace/hostId/projectId 隔离、刷新、显式 ID、竞争命令与迟到 ACK。
+真实 Agent 首发未验证：本机没有可运行的既有隔离 Linux 环境，不为验收重建 Windows runtime，
+不访问用户凭据、不重启共享服务。根 lint 为 539 warnings / 0 errors，改动源码专项为 0/0，
+受影响 shared/UI/Web 类型与架构检查通过；根 typecheck 重试后仍因未修改的凭据恢复夹具
+四个类型错误失败，不标为通过。源码格式及新增规格片段格式通过，不重排原文已有表格。
+本次不自动转正、加入 Docker preset 或发布安装包；分层结果见覆盖矩阵。
+
 ### 默认配置
 
 仅真实用户发送被接纳时更新 Recent；模型回复完成不是边界。改菜单、预热、权限确认、读取历史、打开设置、失败发送不更新 Recent。

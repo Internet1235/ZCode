@@ -8,7 +8,7 @@ import {
   type CommandPayloadMap,
   type CommandType,
 } from "@zcode/shared/zcode-protocol-v4";
-import { uuidv7 } from "@zcode/shared";
+import { createUuid, uuidv7 } from "@zcode/shared";
 export { uuidv7 } from "@zcode/shared";
 
 const CLIENT_ID_STORAGE_KEY = "zcode-v4-client-id:v1";
@@ -99,14 +99,14 @@ export function createCommandEnvelope<T extends CommandType>(
   if (ROW_TARGETING_COMMANDS.has(input.type) && !input.baseLogEpoch) {
     throw new Error(`command ${input.type} 是 row target 命令，必须携带 baseLogEpoch`);
   }
-  // 会话 ID 恢复 UUID v4；在信封首次构造时分配，避免重试重新生成并预留另一条任务。
+  // LAN HTTP 不提供 randomUUID；用安全 UUIDv4，并只在首次构造时分配以保留重试身份。
   const payload =
     input.type === "createSession"
       ? {
           ...input.payload,
           sessionId:
             (input.payload as CommandPayloadMap["createSession"]).sessionId ??
-            `sess_${crypto.randomUUID()}`,
+            `sess_${createUuid({ requireSecureRandom: true })}`,
         }
       : input.payload;
   return {

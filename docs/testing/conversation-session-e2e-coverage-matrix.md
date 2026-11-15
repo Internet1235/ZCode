@@ -573,6 +573,20 @@ MP13 在同一 pending spec 中通过真实设置页切换开关，Relay fixture
 
 ## 项目与任务草稿生命周期（PD，2026-10-16）
 
+### 普通 HTTP 发送修复
+
+| 用例 / 层级     | setup / action / assertion                                                                                  | 状态                               | 证据边界                                                                                    |
+| --------------- | ----------------------------------------------------------------------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------- |
+| PD17 浏览器身份 | 可信/非可信 HTTP，运行生产 factory/store；UUIDv4 均合法，非可信 HTTP 不依赖 randomUUID                      | covered（候选未转正）              | 独立 Edge 浏览器通过；非可信域名仅映射至 loopback，不替换 crypto；不等于用户 Linux 点击现场 |
+| PD17 首条发送   | 隔离 Server/CLI/Provider，经原 prewarm 与 sendText；核对原 session、admission 和 Provider 原文              | planned                            | UUID 或 HTTP ready 不计真实发送成功                                                         |
+| PD18 持久隔离   | 同 scope 重读/刷新、跨 clientNamespace/hostId/projectId、显式 Session ID 与迟到 ACK；原引用复用且新草稿保留 | covered（候选未转正，身份/存储层） | 真实 factory/store 与 localStorage 通过；原信封两次 RPC 回放未验证，不恢复 App 单测         |
+| PD19 明确拒绝   | 独立浏览器禁用安全随机、拒绝 storage getter 或 pending setItem；错误传播、无弱随机身份/成功写入             | covered（候选未转正，身份/存储层） | 三类受控负向通过；未装配目录准备，目录副作用仍未验证；不用于模拟正常 HTTP                   |
+
+入口为 [send-http.mjs](../../packages/web/test/e2e/source/send-http.mjs)，共 5/5 通过。
+不覆盖 Windows runtime、发行构建、
+报错复制、凭据修复、项目导航或一般 Linux ACL。
+沿用 Desktop continuous / 手机 replayable、原身份和 owner/lease，不新增执行路径。
+
 2026-11-10 PD13–PD16 已人工复核并转正。候选 `local-docker-20261110101907-919e75`、
 正式独立回放 `local-docker-20261110102824-d5e7e3` 与正式默认回放 `local-docker-20261110103028-ab4b1b` 均为 1/1 通过、零跳过；
 产物均在 `packages/desktop/.e2e-artifacts/`。独立轮使用 `strict-case-local`，只加载 common 与本用例 fixture。
