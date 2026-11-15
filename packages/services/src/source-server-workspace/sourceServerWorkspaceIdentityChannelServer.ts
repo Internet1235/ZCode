@@ -4,12 +4,7 @@ import {
   type IChannelServer,
   type IServerChannel,
 } from "@zcode/rpc";
-import {
-  buildRemoteHostWorkspaceIdentity,
-  parseRemoteWorkspaceIdentity,
-  remoteHostIdFromWorkspaceIdentity,
-  ServiceChannels,
-} from "@zcode/shared";
+import { ServiceChannels } from "@zcode/shared";
 import {
   conversationTopicFrameSchema,
   encodeTopicWireFrames,
@@ -32,7 +27,6 @@ const log = createServiceLogger("source-server-workspace-identity");
 export interface SourceServerWorkspaceIdentityMapping {
   stableIdentity: string;
   canonicalIdentity: string;
-  workspacePath: string;
 }
 
 function isPlainRecord(value: object): value is Record<string, unknown> {
@@ -74,7 +68,6 @@ function mapValue(value: unknown, mappings: ReadonlyMap<string, string>): unknow
   ) {
     return value;
   }
-
   return Object.fromEntries(
     Object.entries(value).map(([key, item]) => [key, mapValue(item, mappings)]),
   );
@@ -196,37 +189,10 @@ function mapTopicWireEvent(
 export class SourceServerWorkspaceIdentityMapper {
   private readonly stableToCanonical = new Map<string, string>();
   private readonly canonicalToStable = new Map<string, string>();
-  private readonly canonicalWorkspaces = new Map<
-    string,
-    { hostId: string; workspacePath: string }
-  >();
 
   public register(mapping: SourceServerWorkspaceIdentityMapping): void {
-    const hostId = remoteHostIdFromWorkspaceIdentity(mapping.stableIdentity);
-    if (
-      !hostId ||
-      parseRemoteWorkspaceIdentity(mapping.stableIdentity)?.kind !== "server" ||
-      buildRemoteHostWorkspaceIdentity(hostId, mapping.workspacePath) !== mapping.stableIdentity
-    )
-      throw new Error("source-server-workspace.invalid-registration");
     this.stableToCanonical.set(mapping.stableIdentity, mapping.canonicalIdentity);
     this.canonicalToStable.set(mapping.canonicalIdentity, mapping.stableIdentity);
-    this.canonicalWorkspaces.set(mapping.canonicalIdentity, {
-      hostId,
-      workspacePath: mapping.workspacePath,
-    });
-  }
-
-  public isRegisteredSourceWorkspace(task: {
-    hostId: string;
-    workspacePath: string;
-    workspaceIdentity?: string;
-  }): boolean {
-    const registered = this.canonicalWorkspaces.get(
-      task.workspaceIdentity?.trim() || task.workspacePath,
-    );
-    // 物理 Source 与历史 authority 分离；裸 cwd 相同不能授权另一设备或未登记身份。
-    return registered?.hostId === task.hostId && registered.workspacePath === task.workspacePath;
   }
 
   public mapIncoming<T>(value: T): T {

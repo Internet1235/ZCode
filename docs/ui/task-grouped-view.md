@@ -52,16 +52,8 @@
   不修改既有 migration ID/SQL checksum，不重跑已记账迁移；必要初始化状态使用加法迁移。
   本次重构未发布，已转换的开发库不按名称或目录猜测删除项目。
 
-### 独立 Source 组织边界回归
-
-普通 HTTP Source 的首发与任务树必须带同一 stable Source identity，含已删除事实；不把缺少身份的
-Source 任务构造成 local 引用。Source 内部通过同一 alias owner 使用 canonical storage key，
-历史 canonical authority 不等于物理 hostId 时，仅允许已登记的完整 Source/目录/identity 配对。
-跨 Host 同路径继续拒绝。窗口 Controller 缺席是连接能力事实，沿用 TaskService fallback，
-不在 UI 捕获 Unknown channel 后切换写入 owner。首次入组失败仍只重试原 creationId 的 admit。
-
-ORG01–04 的 setup/action/assertions 与实际覆盖见 case catalog 和覆盖矩阵；隔离生产模块验收
-不使用真实任务，不继承既有 GRP 的整机通过状态。
+非 local 的独立 Source 分组限定可信持库 Host，再按原始项目树精确核对 workspaceKey、taskId 和真实目录；本机保持原 identity authority 校验。
+不为分组扩大项目身份返回或增加 alias 登记；跨 Host 同路径仍拒绝。缺少 Controller 时沿用 TaskService。
 
 ### 2026-10-14 旧版呈现与交互恢复
 

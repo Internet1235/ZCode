@@ -573,20 +573,6 @@ MP13 在同一 pending spec 中通过真实设置页切换开关，Relay fixture
 
 ## 项目与任务草稿生命周期（PD，2026-10-16）
 
-### 普通 HTTP 发送修复
-
-| 用例 / 层级     | setup / action / assertion                                                                                  | 状态                               | 证据边界                                                                                    |
-| --------------- | ----------------------------------------------------------------------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------- |
-| PD17 浏览器身份 | 可信/非可信 HTTP，运行生产 factory/store；UUIDv4 均合法，非可信 HTTP 不依赖 randomUUID                      | covered（候选未转正）              | 独立 Edge 浏览器通过；非可信域名仅映射至 loopback，不替换 crypto；不等于用户 Linux 点击现场 |
-| PD17 首条发送   | 隔离 Server/CLI/Provider，经原 prewarm 与 sendText；核对原 session、admission 和 Provider 原文              | planned                            | UUID 或 HTTP ready 不计真实发送成功                                                         |
-| PD18 持久隔离   | 同 scope 重读/刷新、跨 clientNamespace/hostId/projectId、显式 Session ID 与迟到 ACK；原引用复用且新草稿保留 | covered（候选未转正，身份/存储层） | 真实 factory/store 与 localStorage 通过；原信封两次 RPC 回放未验证，不恢复 App 单测         |
-| PD19 明确拒绝   | 独立浏览器禁用安全随机、拒绝 storage getter 或 pending setItem；错误传播、无弱随机身份/成功写入             | covered（候选未转正，身份/存储层） | 三类受控负向通过；未装配目录准备，目录副作用仍未验证；不用于模拟正常 HTTP                   |
-
-入口为 [send-http.mjs](../../packages/web/test/e2e/source/send-http.mjs)，共 5/5 通过。
-不覆盖 Windows runtime、发行构建、
-报错复制、凭据修复、项目导航或一般 Linux ACL。
-沿用 Desktop continuous / 手机 replayable、原身份和 owner/lease，不新增执行路径。
-
 2026-11-10 PD13–PD16 已人工复核并转正。候选 `local-docker-20261110101907-919e75`、
 正式独立回放 `local-docker-20261110102824-d5e7e3` 与正式默认回放 `local-docker-20261110103028-ab4b1b` 均为 1/1 通过、零跳过；
 产物均在 `packages/desktop/.e2e-artifacts/`。独立轮使用 `strict-case-local`，只加载 common 与本用例 fixture。
@@ -5418,27 +5404,11 @@ SPR03 在最终构建复跑 `complete-cross`，1/1 PASS：8/16/32 次及闲置�
 
 ## PCD 创建后选择草稿项目（2026-10-16）
 
-| ID    | 场景与断言                                                                                                         | 验证                                                                                                                                                                                                                      |
-| ----- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| PCD01 | 创建后选中新项目，正文、File 附件及分组保留；当前 Source 非 local owner 的同目录导航及后续新建继承；local 默认对照 | `packages/web/test/e2e/source/project-directory-picker.mjs`（2026-11-14 Windows 真实 Root、RPC、IO、隔离 SQLite 通过）；旧浏览器及 macOS 记录保持独立                                                                     |
-| PCD02 | 已有会话、保存/刷新期间草稿换代、取消/失败不导航；prepare 失败、切 tab/草稿换代后的迟到结果不覆盖当前状态          | 同一 Source runner 的受控 RPC 失败/释放屏障（2026-11-14 Windows 通过）；已有会话仍由 PCD01 历史浏览器证据覆盖，不恢复退役 App 单测                                                                                        |
-| PCD03 | 外部入口登记成功后才导航；重试不重复创建；外部缺真实 identity/opener 明确拒绝；手机目标 Root 保留交接意图          | 同一 Source runner 的外部拒绝/登记重试（2026-11-14 Windows 通过）；手机 `packages/desktop/test/e2e/conversation-session/projects/conversation-session-virtual-project-mobile.test.ts`（pending，shared-host，非本轮证据） |
-
-本轮 accepted 范围与剪枝见
-[创建后当前服务导航](../ui/project-task-draft-lifecycle.md#创建项目后的当前服务导航)。
-聚焦回归必须观察 Root 实际提交后的 tab purpose、projectId、草稿代际、持久正文和内存
-附件，不以表单关闭、save/prepare 回包或 fixture 写入目标成功状态代替。本轮检查不
-继承下面的历史通过结果；Linux/fnOS 安装包、原生桌面与手机 bridge 未计本轮覆盖。
-
-验证（2026-11-14，基线 `f7cc3e76`）：Windows 串行 13 场景及普通 `/ws` Host guard
-全通过，涵盖 Source 1024/390px × 深浅主题 × 中英文、local 默认对照、外部登记重试
-及缺 identity 拒绝、prepare 失败、切 tab/草稿换代后的迟到结果。外部拒绝不计导航成功。
-有效修前运行复现了错误 prepare Host；加载超时及并行验证资源失败不计通过。
-UI/Web scoped 与独立 fixture 类型检查通过；根 `pnpm typecheck` 退出码 2，被未修改
-`packages/desktop/test/e2e/fixtures/credential-recovery/server-websocket.ts` 四个类型
-诊断阻断。`pnpm lint` 为 539 warnings、0 errors；相关新建 callback 的 Hooks 依赖
-诊断已消失，changed architecture 为 0 violations。资源隔离及验证边界见上述规格；
-用例保持 pending，不晋升 formal/CI，不借用下面的历史通过结果。
+| ID    | 场景与断言                                                                | 验证                                                                                                                                                                                                               |
+| ----- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| PCD01 | 侧栏/草稿菜单新建成功，当前草稿左上角选中新项目，正文及附件保留；深浅主题 | `packages/ui/test/browser/manual-review/pending/project-created-draft.test.mjs`（pending）                                                                                                                         |
+| PCD02 | 已有会话、保存/刷新期间草稿换代、取消/失败不导航                          | 退役单测的独立断言待补；历史记录：`retired:packages/ui/test/projectCreation.test.ts`、`retired:packages/ui/test/composerDraftWorkspaceTransfer.test.ts`；PCD01 浏览器补已有会话                                    |
+| PCD03 | 远端登记入口成功后选择，手机 Root 重建后保留正文、附件及分组意图          | 退役单测的独立断言待补；历史记录：`retired:packages/ui/test/projectCreation.test.ts`；`packages/desktop/test/e2e/conversation-session/projects/conversation-session-virtual-project-mobile.test.ts`（pending，shared-host） |
 
 验证（2026-10-16）：macOS 桌面两入口、深浅主题及已有会话隔离通过；Chrome 手机视口的真实 shared-host 链路确认新项目选中、正文保留、附件重新上传至 ready。受影响单测 432 文件 / 5782 项通过（1 项既有跳过），typecheck、E2E typecheck、lint、架构及代码格式检查通过。用例保持 pending；未覆盖 Windows/Linux 整机和真实 SSH 设备。
 
@@ -6888,38 +6858,6 @@ XSG02 Session 合并执行计数（2026-11-04，pending-review）：会话工具
 
 XSG02 Bash 展开保留描述（2026-11-04，pending-review）：浏览器 8/8 通过，独立行展开／收起和组内展开后 description 均可见，实际命令与输出保留；覆盖桌面/手机宽度、深浅主题、中英文。日志 `packages/desktop/.e2e-artifacts/tool-summary-spacing-browser/bash-open-description-verification.log`，截图沿用 `bash-description-*`。未执行实体手机传输验收。
 
-## Source 组织与 RPC 生命周期回归（ORG-RPC）
-
-用例见 [case catalog](../conversation-session-case-catalog.md#source-组织与-rpc-生命周期回归org-rpc)。
-本轮修复后隔离复验：组织 13/13、RPC 17/17、普通 HTTP 归档 11/11，均退出 0。
-数量是各 runner 的场景总数，覆盖按实际断言分项记录；不继承历史通过，不晋升 formal/CI，
-不把 fake 端口或浏览器通过当成真实 Agent、Linux/fnOS 整机或手机传输通过。
-
-| Cases         | 验证层                                                                    | 当前状态 / 缺口                                                                                                                                                                                                                                 |
-| ------------- | ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| ORG01         | 生产 proxy/adapter + 内存 RPC                                             | partial；普通 Source 零 Controller proxy，归档/恢复/readMeta 沿 TaskService；显式 capability 的 Client/Protocol 两入口保留完整 Controller address。改名/pin/事件订阅未运行                                                                      |
-| ORG02         | 生产 Project/Group + 独立 SQLite                                          | partial；stable/SSH/local canonical 的 prepare、active/deleted-only read、admit/move 和重复 receipt 通过；真实 cwd、canonical storage key、CLI 时间及 NULL project 不变。已删除清引用未完整断言                                                 |
-| ORG03         | 生产 mapper/Group + 内存 RPC/独立 SQLite                                  | partial；跨 Host、错误 path、未登记 canonical 拒绝，普通 Host strict 对照保留；JSON/Uint8Array/Date/diagnostics 不变。完整 topic/事件映射、真实 SSH 及 Linux/fnOS 未运行                                                                        |
-| ORG04         | 生产 Controller + fake Source                                             | covered（隔离 Controller 层）；写前读取/实际 mutation 失败 reject，写后 refresh 失败不否定提交并记录一次错误；正常归档、已读 CAS 和 Source 换代拒绝迟到写入通过。无真实远控链路                                                                 |
-| RPC-LIFE01–03 | 生产 RPC/Foundation/DelayedChannel + 内存传输                             | covered（生产 RPC 内存层）；17/17，精确验证 deadline/flush、Initialize 等待和终态资源、事件复订/旧代、同步首帧、实时 token 及 consumer-driven Relay。未验证真实 transport 重连或业务重放                                                        |
-| APD13         | 独立普通 HTTP browser + 生产归档 hook/adapter/Provider/Dialog + fake 任务 | covered（隔离浏览器层）；11/11，Source/Controller 两 owner 及安全上下文对照、每目标 UUID/revision/身份、取消/迟到 preview/重复入口、安全随机缺失零提交、blocked/incomplete 保留状态通过。零真实删除，无 CLI 物理清理、实体手机或真实 relay 证据 |
-
-持久复验入口（仓库根目录）：
-
-- [组织 runner](../../packages/web/test/e2e/source/task-organization.mjs)：专属临时 HOME/SQLite，不执行完整个人 services factory。
-- [RPC runner](../../packages/web/test/e2e/source/rpc-lifecycle.mjs)：生产 Client/Server/Foundation/DelayedChannel，内存传输和可控计时器。
-- [HTTP runner](../../packages/web/test/e2e/source/archive-http.mjs)：自有 loopback HTTP 服务、非安全上下文域名映射、每项独立 browser context；只访问自己的 origin，真实 hook 到 fake 提交端口。
-
-```powershell
-pnpm exec tsx packages\web\test\e2e\source\task-organization.mjs
-pnpm exec tsx packages\web\test\e2e\source\rpc-lifecycle.mjs
-node packages\web\test\e2e\source\archive-http.mjs
-```
-
-HTTP runner 可在本次命令进程内用 `CHROME_EXECUTABLE_PATH` 指定已安装的 Chromium 兼容浏览器；
-本轮使用 Edge，不安装浏览器、不连接现有 App/Agent/Server、不读取个人 profile。
-原始 JSON 运行输出保留在本次任务专属目录；不把上述隔离计数合并为整机覆盖。
-
 ## 归档永久删除（APD）
 
 2026-11-04：已实现。扩展既有 ARM 与 TSL39，不新增或晋升 CI 用例。
@@ -6928,27 +6866,23 @@ HTTP runner 可在本次命令进程内用 `CHROME_EXECUTABLE_PATH` 指定已安
 
 实际证据：
 
-以下 ARM/TSL39/CLI 记录为既有 APD01–12 验收，不是本轮 Source/RPC 修复的复跑结果。
-本轮普通 HTTP 修复的 APD13 见上节，仅在隔离浏览器层 covered。
-
 - **ARM：7/7 通过**，`packages/desktop/.e2e-artifacts/desktop-e2e-20261104125244772-p92902-4c43b5f53117a970`。真实 Electron + CLI/Host 两库、共享/私有文件、手机浏览器通过真实配对/relay/Host attachment 操作；包含重新加载补清离线草稿。
 - **TSL39：1/1 通过**，`packages/desktop/.e2e-artifacts/desktop-e2e-20261104124211858-p47259-16ea4749d457f607` 的 TSL39 worker。25 个折叠归档项全部物理清理，普通任务保留；同轮 ARM 在手机入口准备时失败，不能把该轮整体标为通过。
 - **CLI：6 文件共 87 项相关回归通过**。首轮 85 项，最终执行面由 6 项增至 8 项并重跑通过；真 SQLite/文件验证正文与输入/workflow 行删除、URI 读回、独立 fork、写屏障、外部引用变化、多连接驻留互斥与部分失败续删。日志在 ARM 证据目录 `checks/apd-cli-tests.log`、`checks/apd-cli-data.log`。
 - Root/CLI/E2E typecheck、root/CLI lint、schema、架构检查、61 项架构工程测试、20 项受影响工程测试、两个 fixture check、coverage audit、改动文件格式检查通过。Lint 有既有 warnings，无新增错误；详细日志在同一 `checks/`。
 
-| Cases       | Coverage                | 已执行断言                                                                                                                                                                          | 当前缺口                                                    |
-| ----------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| APD01–APD02 | partial                 | ARM02 验证根/owned child/Host 行物理删除、fork/共享文件保留、私有文件消失；CLI 验证正文/输入/workflow 行清理、冷建 artifact reader 按原 URI 读回、非目标工作区文件不变              | 未逐类覆盖全部工具产物及已发布分享对照                      |
-| APD03       | partial                 | UI 待处理输入明确阻止，0 可删禁用且 Enter 不误删；CLI owned child busy/另一个连接的驻留阻止删除                                                                                     | 真实模型执行、permission/goal 各种停止后组合未逐项运行      |
-| APD04       | partial                 | ARM03 筛选集合；TSL39 25 项折叠组全量删除及取消零写入                                                                                                                               | 超过 50 项、多 source 混合离线批次未运行                    |
-| APD05       | partial                 | ARM02 确认后修改 session revision 拒绝旧清单；CLI 新文件/引用/owned child 拒绝旧计划，运行态再检查                                                                                  | 两个真实窗口取消归档竞态未运行                              |
-| APD06       | partial                 | 每个根独立重查；树外所有尚存引用方均保留文件，不假设同批其他项一定成功                                                                                                              | 多根相互引用、某项中途失败的完整 UI 停点未运行              |
-| APD07–APD08 | partial                 | CLI 文件/数据库故障后保留删除凭据，新连接续删、重复执行幂等、迟到 message/引用/workflow/创建/runtime 注册被拒绝；UI 刷新不复活                                                      | Host 索引故障、真实多进程崩溃、旧版本混用未运行             |
-| APD09       | partial                 | CLI 拒绝错误 workspace；实现保持原 source/identity，不回退本机                                                                                                                      | 真实 SSH/WSL/Docker、离线及旧远端能力不足未运行             |
-| APD10       | partial                 | APD11 手机实际配对删除后两库清理，重载后从持久凭据补清离线草稿；日志证实注册监听后补发，修复先发后听竞态                                                                            | 传输层丢 ACK、另一设备离线回放尚未故障注入                  |
-| APD11       | partial                 | 页面中英 × 明暗 × 1200/390px 截图与几何断言；实际手机宽度确认框、0 可删禁用、Escape/Enter 取消、精确根数量；最终手机弹窗截图 `apd-mobile-confirmation.png`                          | 大量共享附件及所有语言/主题下弹窗组合未逐项运行             |
-| APD12       | partial                 | 活跃普通任务、fork、非目标工作区文件保持；旧项目清理 CLI 回归通过；固定分享/目录级数据保留提醒                                                                                      | 分享、历史备份/日志、既有软删除行的完整哈希对照未运行       |
-| APD13       | covered（隔离浏览器层） | 本轮 HTTP runner 11/11；真实 hook/adapter/确认 Dialog 到 fake Source/Controller 提交端口，独立安全 UUID、完整 revision/身份、取消与安全随机缺失零提交、按返回 sessionIds 隔离清状态 | 无 CLI 物理删除、Linux/fnOS 现场、实体手机或真实 relay 证据 |
+| Cases       | Coverage | 已执行断言                                                                                                                                                             | 当前缺口                                               |
+| ----------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| APD01–APD02 | partial  | ARM02 验证根/owned child/Host 行物理删除、fork/共享文件保留、私有文件消失；CLI 验证正文/输入/workflow 行清理、冷建 artifact reader 按原 URI 读回、非目标工作区文件不变 | 未逐类覆盖全部工具产物及已发布分享对照                 |
+| APD03       | partial  | UI 待处理输入明确阻止，0 可删禁用且 Enter 不误删；CLI owned child busy/另一个连接的驻留阻止删除                                                                        | 真实模型执行、permission/goal 各种停止后组合未逐项运行 |
+| APD04       | partial  | ARM03 筛选集合；TSL39 25 项折叠组全量删除及取消零写入                                                                                                                  | 超过 50 项、多 source 混合离线批次未运行               |
+| APD05       | partial  | ARM02 确认后修改 session revision 拒绝旧清单；CLI 新文件/引用/owned child 拒绝旧计划，运行态再检查                                                                     | 两个真实窗口取消归档竞态未运行                         |
+| APD06       | partial  | 每个根独立重查；树外所有尚存引用方均保留文件，不假设同批其他项一定成功                                                                                                 | 多根相互引用、某项中途失败的完整 UI 停点未运行         |
+| APD07–APD08 | partial  | CLI 文件/数据库故障后保留删除凭据，新连接续删、重复执行幂等、迟到 message/引用/workflow/创建/runtime 注册被拒绝；UI 刷新不复活                                         | Host 索引故障、真实多进程崩溃、旧版本混用未运行        |
+| APD09       | partial  | CLI 拒绝错误 workspace；实现保持原 source/identity，不回退本机                                                                                                         | 真实 SSH/WSL/Docker、离线及旧远端能力不足未运行        |
+| APD10       | partial  | APD11 手机实际配对删除后两库清理，重载后从持久凭据补清离线草稿；日志证实注册监听后补发，修复先发后听竞态                                                               | 传输层丢 ACK、另一设备离线回放尚未故障注入             |
+| APD11       | partial  | 页面中英 × 明暗 × 1200/390px 截图与几何断言；实际手机宽度确认框、0 可删禁用、Escape/Enter 取消、精确根数量；最终手机弹窗截图 `apd-mobile-confirmation.png`             | 大量共享附件及所有语言/主题下弹窗组合未逐项运行        |
+| APD12       | partial  | 活跃普通任务、fork、非目标工作区文件保持；旧项目清理 CLI 回归通过；固定分享/目录级数据保留提醒                                                                         | 分享、历史备份/日志、既有软删除行的完整哈希对照未运行  |
 
 这里的 partial 指产品状态组合未全量覆盖，不等同于已执行断言失败。当前 macOS 桌面与手机浏览器链路通过；Windows/Linux、真实手机硬件、真实远端未验收。页面截图不等同于手机传输证明，手机证明仅来自 APD11。
 

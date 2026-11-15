@@ -112,7 +112,5 @@ fork host process ──────────→
 - `packages/rpc/src/logging-middleware.ts` — `LoggingChannelServer` 透传 `ready()`
 - `packages/desktop/src/host/index.ts` — remote 模式传 `deferInit=true`，服务注册后调 `server.ready()`
 
-Initialize 表示该连接已完成装配，不表示任意惰性 proxy 对应的 channel 存在。
-窗口 Controller 必须在连接装配时显式声明能力：Desktop base/scoped attachment 和手机 shared-host
-提供，普通 Source WebSocket 与 Source settings scope 不提供；缺席使用既有 TaskService 路径，
-不能捕获 Unknown channel 后改投另一 owner。不得以延长超时替代正确就绪和生命周期管理。
+Initialize 不表示任意惰性 proxy 对应的 channel 存在；Controller 按显式能力装配，
+普通 Source 沿用 TaskService，不以延长超时或捕获错误后跨 owner 回退替代正确装配。

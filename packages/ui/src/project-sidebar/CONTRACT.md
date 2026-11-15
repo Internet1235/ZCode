@@ -32,7 +32,7 @@ UI 纠偏：分区复用 WorkspacePurposeSection 和原折叠/顺序偏好；项
 
 桌面本地项目添加目录通过 IPlatformService.selectDirectories 调起系统多选；结果仅合并去重到编辑器草稿，保存才提交。远端与 Web/手机目录浏览通过 projectService.readDirectory(hostId)，不从当前 tab 推导文件服务；创建默认设备表示当前项目服务，目录读取与保存省略 Host，不强制 Source owner 为 local。保存回调保留请求目标，只有显式外部 Host 才登记控制端入口；已有项目和固定目录的显式 Host 不变。DirectoryBrowser 的迟到响应沿用请求序号判定。选择在途与保存/关闭互斥，取消不修改草稿。见 docs/ui/project-local-directory-picker.md。
 
-创建后的导航也沿用原请求目标，不能无条件把保存返回的存储 owner 当作外部 Host。当前 Source 项目使用当前服务准备目录并由 Root 提交 tab/草稿；后续新建从当前服务有效项目继承归属。显式外部请求仍须真实 identity、opener 与 membership，缺失明确拒绝。保存/prepare 成功不等于导航成功，失败或迟到结果不覆盖原页面。见 docs/ui/project-task-draft-lifecycle.md。
+创建后导航和后续新建沿用当前服务的有效项目，不把存储 owner 当作外部选择；Root、草稿交接及外部身份校验沿用原流程。见 docs/ui/project-task-draft-lifecycle.md。
 
 有源文件夹的新建（含恢复）在 Host 成员登记和 saveProject 前显示本次目录信任确认，展示所选设备及完整 roots。ProjectEditor 是唯一草稿和确认请求 owner；取消保留表单，隐藏/卸载令旧查询与确认失效，单次保存以在途引用去重。确认只授权本次创建，不持久化、不改变 Hook Trust；重复使用目录仍确认，本地零 roots 直接创建。编辑和添加已有远程项目保持原行为；已保存项目的入口登记重试复用 created，不再次创建或确认。见 docs/specs/project-creation-folder-confirmation.md。
 
@@ -56,10 +56,8 @@ UI 纠偏：分区复用 WorkspacePurposeSection 和原折叠/顺序偏好；项
 
 归档管理经 index 公开，属于 project-sidebar/ui。RootWorkspaceContent 提供单一项目目录 owner，嵌套 Provider 复用；设置、侧栏、composer 共用树。归档按 Host+projectId 分组，删除容器和未归类不按目录重绑；操作复用模块内 mutation adapter 与现有 Controller/TaskService。页面只保存筛选/分页/确认候选和在途状态，批量部分失败不伪造全部成功。见 `docs/superpowers/specs/2026-09-11-archive-management.md`。
 
-Controller 只在连接装配明确提供能力时存在；普通独立 Source 使用已有 TaskService 与广播路径，
-不把惰性 proxy 当能力或捕获错误后跨 owner 回退。永久删除逐目标在提交处复用共享
-createUuid({ requireSecureRandom: true })，
-普通 HTTP getRandomValues 可用时仍能发送，缺少安全随机源明确失败；revision/identity/取消与清理边界不变。
+Controller 按显式能力装配，普通 Source 沿用 TaskService。永久删除逐目标使用安全 UUIDv4，
+普通 HTTP 可使用 getRandomValues，缺少安全随机源明确失败；身份、revision、取消及清理边界不变。
 
 项目管理（设置 › 项目）同样经 index 公开、复用同一目录 owner。行、疑似原因、筛选与排序是 `project-management-view.ts` 的纯派生；`useProjectManagement` 只持有在途批次锁与最近一次失败，本地走 `deleteProject` / `restoreProject`，远程只增删本机入口（`removeEntry` / `addEntry`），每批结束只刷新一次树。选择是页面草稿，生效集合取草稿与当前可见可移除行的交集。侧栏更多菜单末尾的「管理项目…」仅桌面端。见 `docs/superpowers/specs/2026-10-24-project-management.md`。
 

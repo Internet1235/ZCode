@@ -188,34 +188,9 @@ const [clientProtocol, serverProtocol] = createQueuePair();
 
 ### 请求与订阅生命周期
 
-ChannelServer 是已收到请求的唯一生命周期 owner。等待 channel 注册的请求按请求 ID 持有，
-取消、退订、超时和 Server dispose 都是终态：移除等待项并清理定时器，不允许迟到注册重新执行。
-未知事件 channel 返回独立 EventError，不把错误混入业务事件。已经取消或释放的活动请求不再回包；
-正常注册、截止时间前注册、同步事件首帧和现有错误字段透传保持不变。
-注册后尚未执行的 flush 也归等待请求所有；同 channel 最后一项终结时立即释放，不遗留空扫描。
-
-ChannelClient 的一个 Event 可有多个消费者，每轮从零到非零消费者分配新的请求 ID/handler。
-最后一个消费者离开即撤销该轮；等待 Initialize 时也可撤销。旧 Initialize 回调、旧帧或旧错误
-不能复活监听或污染新一轮。连接 dispose 同时终结已发和待初始化请求。
-Promise 在 Initialize 前取消也立即释放等待监听，不将已终结请求保留到连接就绪。
-
-CancellationToken 的状态读取反映 source 的当前取消状态，取消幂等；预取消 token 不发新调用。
-Relay 只在有消费者时订阅输入，最后退订释放上游，复订可重新连接，dispose 后不得重建。
-Emitter dispose 同样释放最后消费者持有的资源；重复 disposable 不重复触发释放钩子。
-Event.once 支持订阅返回前的同步首帧；Relay 同步首帧内切换 input 后，旧 input 即失去投递资格。
-
-```mermaid
-stateDiagram-v2
-    [*] --> 等待注册: Server 收到请求
-    等待注册 --> 活动: 注册在截止时间前完成
-    等待注册 --> 终态: 取消 / 退订 / 超时 / dispose
-    活动 --> 终态: 完成 / 取消 / 退订 / dispose
-    终态 --> [*]: 清理等待项、计时器及订阅，丢弃迟到结果
-```
-
-这些规则只管理 RPC 资源，不新增业务队列或重放已提交命令；桌面 continuous 和手机 replayable
-仍由各自既有 topic owner 提供交付/恢复语义。验收通过内存传输和生产模块运行时场景执行，
-不恢复 App 业务单测，场景见 conversation-session case catalog 的 ORG-RPC。
+请求在取消、退订、超时或 dispose 后清理等待项，迟到 Initialize/注册不得复活请求。
+事件每轮复订使用独立 ID，最后消费者离开释放上游；同步首帧也可安全退订。
+CancellationToken 实时反映取消状态。这些规则只管理 RPC 资源，不重放业务命令。
 
 ### 核心概念
 
