@@ -7,7 +7,6 @@ import { useConfirmDialog } from "@/hooks/useConfirmDialog.js";
 import { useSessionRuntimeRestart } from "@/app-shell/useWorkspaceSessionReload.js";
 import { isRequestVerificationConfigNetworkError } from "@/request-security-edition/errors.js";
 import { useShallow } from "zustand/react/shallow";
-import { remoteHostIdFromWorkspaceIdentity } from "@zcode/shared";
 import { useRemoteConversationAvailable } from "@/v4/RemoteConversationAvailability.js";
 import {
   createRemoteWorkspaceDisconnectedError,
@@ -83,6 +82,7 @@ import type {
   ConversationShareAllowedArtifact,
   ConversationShareTurnPreflightResult,
   ImportedConversationShare,
+  GroupTaskRef,
 } from "@zcode/services";
 import { useCodingPlanBillingDiscountFromService } from "@/CodingPlanBillingDiscount.js";
 import { toast } from "@/components/ui/toast.js";
@@ -722,6 +722,7 @@ export function SessionPane({
     highspeedCardService,
     oauthService,
     modelSelectionService,
+    projectService,
     usageStatsService,
     zcodeSessionService,
     zcodeTaskService,
@@ -2130,21 +2131,36 @@ export function SessionPane({
       };
       const organize =
         taskGroupId !== undefined
-          ? async () => {
-              const task = {
-                taskId: createdSessionId,
-                workspacePath,
-                ...(workspaceIdentity ? { workspaceIdentity } : {}),
-                hostId: remoteHostIdFromWorkspaceIdentity(workspaceIdentity ?? "") ?? "local",
-              };
+          ? async (task?: GroupTaskRef) => {
               const attempt = async () => {
                 try {
+                  let confirmedTask = task;
+                  if (!confirmedTask) {
+                    // 嵌入 Pane 没有目录 Provider；只从当前服务取真实行，不猜测持库 Host。
+                    if (!projectService) throw new Error("project.service-unavailable");
+                    const { tasks } = await projectService.readTree();
+                    const createdTask = tasks.find(
+                      (candidate) =>
+                        candidate.taskId === createdSessionId &&
+                        (candidate.workspaceIdentity?.trim() || candidate.workspacePath) ===
+                          (workspaceIdentity?.trim() || workspacePath),
+                    );
+                    if (!createdTask) throw new Error("task-group.created-task-unavailable");
+                    confirmedTask = {
+                      hostId: createdTask.hostId,
+                      taskId: createdTask.taskId,
+                      workspacePath: createdTask.workspacePath,
+                      ...(createdTask.workspaceIdentity
+                        ? { workspaceIdentity: createdTask.workspaceIdentity }
+                        : {}),
+                    };
+                  }
                   if (!baseWorkspaceServices.taskGroupService)
                     throw new Error("task-group.service-unavailable");
                   await baseWorkspaceServices.taskGroupService.admit({
-                    tasks: [task],
+                    tasks: [confirmedTask],
                     placement: {
-                      task,
+                      task: confirmedTask,
                       groupId: taskGroupId,
                       creationId: messageId ?? createdSessionId,
                     },
@@ -2156,7 +2172,6 @@ export function SessionPane({
                   // 重试闭包只持有这次创建的地址和 placement，绝不调用 createSession。
                   logger.error("[task-groups] 新任务归属提交失败", cause);
                   toast(intl.formatMessage({ id: "taskGroup.failed" }), {
-                    durationMs: 0,
                     actionLabel: intl.formatMessage({ id: "taskGroup.retryPlacement" }),
                     onAction: () => void attempt(),
                     dedupeKey: `task-group:${createdSessionId}`,
@@ -2181,6 +2196,7 @@ export function SessionPane({
     [
       commitCreatedTask,
       baseWorkspaceServices.taskGroupService,
+      projectService,
       refreshTaskGroups,
       intl,
       draftNavigation,
@@ -2228,23 +2244,24 @@ export function SessionPane({
   const resolveRecentScope = useCallback(
     async (targetSessionId: string) => {
       if (!sessionId) return newTaskComposerScope;
-      const projectService = baseWorkspaceServices.projectService;
       if (!projectService) throw new Error("project.service-unavailable");
       // 辅助会话不在主任务索引内；普通会话和 fork 始终使用自身归属。
       const taskId =
         selectionSideChat && targetSessionId === sessionId && rootSessionId
           ? rootSessionId
           : targetSessionId;
-      const { projectId } = await projectService.resolveSessionDirectories(
-        { workspacePath, workspaceIdentity, taskId },
-        newTaskComposerScope.hostId,
-      );
+      // Composer hostId 是持久隔离键，不是服务路由；显式传入会误拒绝独立 Source 的续发。
+      const { projectId } = await projectService.resolveSessionDirectories({
+        workspacePath,
+        workspaceIdentity,
+        taskId,
+      });
       return { ...newTaskComposerScope, projectId };
     },
     [
       sessionId,
       newTaskComposerScope,
-      baseWorkspaceServices.projectService,
+      projectService,
       selectionSideChat,
       rootSessionId,
       workspacePath,

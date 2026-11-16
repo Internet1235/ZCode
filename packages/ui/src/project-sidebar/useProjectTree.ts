@@ -3,10 +3,12 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import type {
   ProjectTree,
   ProjectTaskRef,
+  GroupTaskRef,
   ProjectAvailability,
   RemoteProjectDirectory,
 } from "@/project-sidebar/contract.js";
 import { readProjectSidebarTree } from "@/project-sidebar/project-tree-reader.js";
+import { groupTaskRef } from "@/project-sidebar/grouped-view.js";
 import { stabilizeProjectTree, applyProjectTaskActivities } from "@/project-sidebar/view.js";
 import { useBaseWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
 import { useTabStore } from "@/store/TabStoreProvider.js";
@@ -78,7 +80,7 @@ export function useProjectTree(isDesktop = false) {
     new Set<{
       target: ProjectTaskRef;
       commit(): void;
-      organize?(): Promise<void>;
+      organize?(task: GroupTaskRef): Promise<void>;
       finish(error?: unknown): void;
     }>(),
   );
@@ -169,20 +171,22 @@ export function useProjectTree(isDesktop = false) {
             }
           }
         }
-        const ready = [...pendingCommits.current].filter(({ target }) =>
-          result.tree.tasks.some(
+        const ready = [...pendingCommits.current].flatMap((pending) => {
+          const task = result.tree.tasks.find(
             (task) =>
-              task.taskId === target.taskId &&
+              task.taskId === pending.target.taskId &&
               (task.workspaceIdentity?.trim() || task.workspacePath) ===
-                (target.workspaceIdentity?.trim() || target.workspacePath),
-          ),
-        );
+                (pending.target.workspaceIdentity?.trim() || pending.target.workspacePath),
+          );
+          return task ? [{ pending, task }] : [];
+        });
         // 根因：把组织 RPC 放进共享读取屏障后，一个无回包请求会卡住整棵目录和所有首发。
         // 真实行确认后独立提交组织动作；目录发布、详情提升和导航取消都不等待它。
-        for (const pending of ready) {
+        for (const { pending, task } of ready) {
+          // 原来丢弃了匹配行的 Host，Pane 猜成本机后被 Source 校验拒绝；沿用同次确认的真实引用。
           if (pending.organize)
             void Promise.resolve()
-              .then(pending.organize)
+              .then(() => pending.organize?.(groupTaskRef(task)))
               .catch((cause) => logger.error("[project-sidebar] 首发组织提交失败", cause));
         }
         const commit = () => {
@@ -202,7 +206,7 @@ export function useProjectTree(isDesktop = false) {
             sameReadErrors(previous, result.errors) ? previous : result.errors,
           );
           setError(null);
-          for (const pending of ready) {
+          for (const { pending } of ready) {
             try {
               pending.commit();
               logger.info("[project-sidebar] 首发目录与详情提交", pending.target);
@@ -274,7 +278,7 @@ export function useProjectTree(isDesktop = false) {
       target: ProjectTaskRef,
       commit: () => void,
       signal?: AbortSignal,
-      organize?: () => Promise<void>,
+      organize?: (task: GroupTaskRef) => Promise<void>,
     ) => {
       if (signal?.aborted && !organize) return Promise.resolve();
       return new Promise<void>((resolve, reject) => {
