@@ -13,12 +13,19 @@ import {
   waitForV4ComposerText,
 } from "#e2e/helpers/v4-conversation";
 import { installHandoffRpcProbe, callHandoffHost } from "#e2e/helpers/remote-project-handoff-probe";
+import { BufferReader, deserialize, VSBuffer } from "@zcode/rpc";
+import type { GroupTaskRef, ProjectTree } from "@zcode/services";
 import { ServiceChannels, ZCODE_AGENT_PROVIDER } from "@zcode/shared";
 import { TID_TASK_ITEM, testId } from "@zcode/shared/test-ids";
 
 declare global {
   interface Window {
-    __groupPlacementBarrier?: { held: number; release(): void; restore(): void };
+    __groupPlacementBarrier?: {
+      held: number;
+      requests: number[][];
+      release(): void;
+      restore(): void;
+    };
   }
 }
 
@@ -340,8 +347,7 @@ describe("任务分组独立视图", () => {
     await row.waitForDisplayed();
     const groupId = await row.getAttribute("data-task-group-id");
     if (!groupId) throw new Error("CR-01: group identity unavailable");
-    const readTree = () =>
-      callHandoffHost<{ tasks: Array<{ taskId: string }> }>(ServiceChannels.Project, "readTree");
+    const readTree = () => callHandoffHost<ProjectTree>(ServiceChannels.Project, "readTree");
     const before = new Set((await readTree()).tasks.map((task) => task.taskId));
     // 挂住真实 UI 的 placement RPC，普通目录、分组读取和无 placement 登记继续通行。
     // 只控制故障边界，不替换创建 ACK、权威目录或分组服务。
@@ -350,6 +356,7 @@ describe("任务分组独立视图", () => {
       const held: Array<{ port: MessagePort; args: unknown[] }> = [];
       const probe = {
         held: 0,
+        requests: [] as number[][],
         release() {
           for (const { port, args } of held.splice(0)) Reflect.apply(original, port, args);
         },
@@ -363,6 +370,7 @@ describe("任务分组独立视图", () => {
         const text = message instanceof Uint8Array ? new TextDecoder().decode(message) : "";
         const args = options === undefined ? [message] : [message, options];
         if (
+          message instanceof Uint8Array &&
           text.includes("task-groups") &&
           text.includes("admit") &&
           text.includes("placement") &&
@@ -370,6 +378,7 @@ describe("任务分组独立视图", () => {
         ) {
           held.push({ port: this, args });
           probe.held++;
+          probe.requests.push(Array.from(message));
           return;
         }
         Reflect.apply(original, this, args);
@@ -385,6 +394,34 @@ describe("任务分组独立视图", () => {
       const created = (await readTree()).tasks.filter((task) => !before.has(task.taskId));
       expect(created).toHaveLength(1);
       const taskId = created[0]!.taskId;
+      const request = await browser.execute(() => window.__groupPlacementBarrier?.requests[0]);
+      if (!request) throw new Error("CR-01: placement request unavailable");
+      const reader = new BufferReader(VSBuffer.wrap(Uint8Array.from(request)));
+      expect(deserialize(reader)).toEqual([
+        100,
+        expect.any(Number),
+        ServiceChannels.TaskGroups,
+        "admit",
+      ]);
+      const [admission] = deserialize(reader) as [
+        {
+          tasks: GroupTaskRef[];
+          placement: { task: GroupTaskRef; groupId: string; creationId: string };
+        },
+      ];
+      const task = created[0]!;
+      const expectedRef = {
+        hostId: task.hostId,
+        taskId,
+        workspacePath: task.workspacePath,
+        ...(task.workspaceIdentity ? { workspaceIdentity: task.workspaceIdentity } : {}),
+      };
+      expect(admission.tasks).toEqual([expectedRef]);
+      expect(admission.placement).toEqual({
+        task: expectedRef,
+        groupId,
+        creationId: expect.any(String),
+      });
       // 在组织请求未返回时离开首发 pane；新的目录事实必须仍可进入共享列表。
       await row.$('[data-testid="task-group-new-task"]').click();
       await callHandoffHost(ServiceChannels.Project, "saveProject", [

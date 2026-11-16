@@ -3,6 +3,7 @@ import { waitForUpstreamNetworkCapture } from "#e2e/helpers/upstream-capture";
 import {
   E2E_REPLY_TOKEN,
   getV4ConversationState,
+  getV4Messages,
   prepareV4ConversationE2E,
   sendV4Prompt,
   waitForV4AssistantMessageContaining,
@@ -48,12 +49,26 @@ describe("会话区首发和完成态 E2E", () => {
       90000,
     );
 
+    const firstAssistantIds = new Set(
+      (await getV4Messages("assistant")).map((message) => message.id),
+    );
     const secondPrompt = `E2E_SECOND_TURN_${runId}: Reply with exactly "${E2E_REPLY_TOKEN}" and no other text.`;
     await sendV4Prompt(secondPrompt);
     await waitForV4ComposerText("", "第二轮发送后输入框没有清空");
     await waitForV4UserMessageContaining(secondPrompt);
     await waitForUpstreamNetworkCapture(`E2E_SECOND_TURN_${runId}`);
-    await waitForV4AssistantMessageContaining(E2E_REPLY_TOKEN);
+    await browser.waitUntil(
+      async () =>
+        (await getV4Messages("assistant")).some(
+          (message) => !firstAssistantIds.has(message.id) && message.text.includes(E2E_REPLY_TOKEN),
+        ),
+      { timeout: 90000, timeoutMsg: "第二轮没有产生新的 assistant 回复" },
+    );
+    await waitForV4ConversationState(
+      (snapshot) => snapshot.state === "idle" && snapshot.queueCount === 0,
+      "第二轮完成后 chat-view 没有回到 idle",
+      90000,
+    );
 
     const finalSnapshot = await getV4ConversationState();
     expect(finalSnapshot.sessionId || finalSnapshot.taskId).toBe(
