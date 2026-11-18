@@ -124,9 +124,9 @@ flowchart TD
 
 ### 远端草稿的创建前置（2026-10-30）
 
-远端连接可用不代表草稿项目归属已就绪。冷恢复缺少导航作用域记录时，Composer 可以编辑文字，但在当前草稿获得明确 projectId 前，不启动预热、不提交首发；按钮和键盘发送遵守同一个条件。用户通过已有项目入口选择项目后，现有预热流程继续。已有正式会话不依赖草稿 projectId，本地未归类草稿仍允许 projectId 为空。
+外部设备 attachment 连接可用不代表草稿项目归属已就绪。冷恢复缺少导航作用域记录时，Composer 可以编辑文字，但在当前草稿获得明确 projectId 前，不启动预热、不提交首发；按钮和键盘发送遵守同一个条件。用户通过已有项目入口选择项目后，现有预热流程继续。已有正式会话不依赖草稿 projectId。本地和普通 Web 直连当前 Source 的未归类草稿允许 projectId 为空，Source 的可信准入由发布点而不是 Renderer 分类决定。
 
-该条件直接从现有 workspace draftProjectId 派生，不新增归属缓存、定时等待或按 cwd 推断项目。Host 的远端项目校验继续作为最终边界。缺失记录是可重复的受控恢复夹具，不代表已证实用户记录因升级丢失。
+该条件由外部 attachment 与现有 workspace draftProjectId 派生，不新增归属缓存、定时等待或按 cwd 推断项目。显式 NULL（含 targetWorkspace）优先于当前项目及草稿默认；任务区、项目菜单和 × 复用完整 Root 新建路径，保留 handoff 与 createSource，一次 prepare 成功后才提交导航。Host 的外部设备项目校验继续作为最终边界。缺失记录是可重复的受控恢复夹具，不代表已证实用户记录因升级丢失。
 
 ```mermaid
 flowchart LR

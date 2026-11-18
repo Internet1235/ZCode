@@ -622,7 +622,7 @@ export function App({
   const handleCreateTaskIfWritable = useCallback(
     (request?: Parameters<typeof onCreateTask>[0]) => {
       if (!workspaceReadOnlyReason) {
-        onCreateTask(request);
+        return onCreateTask(request);
       }
     },
     [onCreateTask, workspaceReadOnlyReason],

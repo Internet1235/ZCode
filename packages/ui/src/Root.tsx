@@ -167,6 +167,7 @@ export function Root(props: RootProps) {
           services={props.services}
           composerClientNamespace={props.composerClientNamespace}
           terminalOwnerId={props.terminalOwnerId}
+          directSourceHostId={props.directSourceHostId}
         >
           <PlatformProvider platform={props.platform}>
             <StoreProvider

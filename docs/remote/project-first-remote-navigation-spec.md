@@ -19,11 +19,11 @@
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | Q1 项目展示          | 「项目」tab 删除设备层。本地和远程项目平铺在同一个「项目」分组。远程项目保留轻量设备识别信息，采用已确认的 A 紧凑设备标签与状态配色。 |
 | Q2 打开项目          | 未指定项目的手动设备连接成功后选择远程目录；点击已有项目直接打开该项目；启动恢复与断线重连恢复原项目，不重新选目录。                  |
-| Q3 停用远程无项目 UI | 所有新建与历史访问入口停用，历史数据保留，不再自动恢复；不迁移、不删除远端任务、索引、聊天文件或 backing workspace。                  |
+| Q3 停用远程无项目 UI | 外部设备 attachment 的新建与历史访问入口停用；普通 Web 直连当前 Source 不属于外部设备，保留无项目创建及旧无项目会话访问。不迁移、不删除数据。 |
 | Q4 操作入口          | 设置页与远程连接弹窗继续管理设备；侧栏保留全局「打开远程项目」入口，采用「项目」分组标题加号菜单。已有项目从项目行打开/连接。         |
 | Q5 排序              | 本地、远程项目共享全局顺序，允许跨设备拖动并记住顺序；连接状态变化不改变位置；离线项目行继续显示。                                    |
 | Q6 取消与收起        | 取消目录选择回到原页面，释放本次未绑定项目的临时会话，设备保持在线，不新增项目或聊天，不影响其他项目；收起保留进度。                  |
-| Q7 移除项目操作      | 远程项目输入框隐藏项目标签的 × 和「不在项目中工作」，保留切换项目能力；本地行为不变。                                                 |
+| Q7 移除项目操作      | 外部设备 attachment 隐藏项目标签的 × 和「不在项目中工作」；本地及普通 Web 当前 Source 保留这两个入口，均创建明确无项目的草稿，不移动正式会话。 |
 
 ```text
 项目 tab
@@ -37,7 +37,33 @@
 
 本地解除项目绑定时，按完整 `workspaceKey = workspaceIdentity?.trim() || workspacePath`
 匹配当前 tab；同路径远端 tab 排在前面也不能遮蔽本地项目或本地 conversation tab。
-已有本地 conversation tab 直接复用；远端项目继续禁止解除绑定。
+未发送的无项目草稿通过既有 draftId 复用目录；外部设备项目继续禁止解除绑定。
+
+### 当前 Source 的无项目修复边界
+
+- 顶层或目标中的 `projectId: null` 是明确无项目，不能被当前项目、分组继承或默认值覆盖。任务区新建使用同一显式空归属。
+- 菜单与 × 都提交既有 Root 新建请求，一次准备目录，再完成完整草稿初始化和导航；保留正文、mention、附件、provider、分组与 createSource。失败沿用现有错误出口，不报告成功。
+- 普通 Web 的当前 Source 分类来自本次 `/api/server-info` 的稳定 serverId，只用于 UI 服务与导航选择，不授权后端操作。旧会话保留完整 identity 与 cwd，不按路径将真正外部设备当作当前 Source。
+- Host 的无项目准入只来自 `/ws` 发布点注入的进程内调用作用域。`/ws/host` 与 stdio relay 保持 project-first；下游 replayable、客户端自报字段、已有 runtime 或相同路径均不能授权。
+- 同一作用域贯穿 prepare、每次新 Repository、reserve/receipt/fork、cold subscribe 和 runtime-materialization 目录读取。CLI 回调使用已捕获的可信调用作用域，不从可变 active workspace 推断准入；不新增项目、业务 owner、持久缓存或连接步骤。
+- 旧 `project_id IS NULL` 会话在当前 Source 的分组中可以打开、冷恢复和续发；不重跑迁移、不改身份、不搬目录。外部离线 attachment 仍明确拒绝，不回落 base services。
+
+```mermaid
+sequenceDiagram
+    participant UI as Composer / 分组
+    participant Root as 既有 Root 导航
+    participant Ingress as Source /ws 发布点
+    participant Host as Project / Repository
+    participant CLI as 既有 CLI runtime
+    UI->>Root: 显式 NULL 新建 / 完整身份打开历史
+    Root->>Ingress: 既有 RPC
+    Ingress->>Host: 可信调用作用域（非 UI 字段）
+    Host-->>Root: 真实 cwd、NULL、空附加目录
+    Root-->>UI: 草稿初始化与导航提交
+    Ingress->>CLI: 既有首发 / 冷恢复命令
+    CLI->>Host: runtime-materialization（捕获原作用域）
+    Host-->>CLI: 同一目录事实
+```
 
 侧栏点击本地任务同样按完整 `workspaceKey` 激活 tab：不带 identity 的激活只命中本地 tab，
 同路径远端 tab 排在前面也不能被激活（RPN-25）。Header 读取当前 tab 的设备与用途时用同一规则。

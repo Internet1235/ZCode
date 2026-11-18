@@ -24,6 +24,7 @@ import {
 import { resolveWorkspaceTelemetryDetail } from "@zcode/shared";
 import { isAuxiliarySessionKind } from "@zcode/shared";
 import { createAppControlReverseRpc } from "#src/app-control/index.js";
+import { captureSourceWebInvocation } from "#src/project-storage/index.js";
 import type { AppControlService } from "#src/app-control/contract.js";
 import { SessionControlError } from "@zcode/session-control/contracts";
 import {
@@ -477,6 +478,7 @@ interface PendingProviderRuntimeHeadersRequest extends PendingPermissionRequest 
 }
 
 interface PendingSessionRuntimePreferencesRequest extends PendingPermissionRequest {
+  invocation: ReturnType<typeof captureSourceWebInvocation>;
   workspace: ZCodeAgentWorkspaceTarget;
   request: ZCodeAgentSessionRuntimePreferencesRequest;
   timeout: ReturnType<typeof setTimeout>;
@@ -3122,6 +3124,7 @@ export function createZCodeAgentService(
             requestId,
           };
           pendingSessionRuntimePreferences.set(requestId, {
+            invocation: captureSourceWebInvocation(),
             client,
             protocolRequestId: request.id,
             request: dynamicRequest,
@@ -6447,9 +6450,11 @@ export function createZCodeAgentService(
           pending.request.scope === "runtime-materialization" &&
           options?.resolveSessionDirectories
         ) {
-          preferences.additionalDirectories = await resolveSessionDirectories(
-            { ...pending.workspace, sessionId: pending.request.sessionId },
-            pending.request.directorySessionId,
+          preferences.additionalDirectories = await pending.invocation(() =>
+            resolveSessionDirectories(
+              { ...pending.workspace, sessionId: pending.request.sessionId },
+              pending.request.directorySessionId,
+            ),
           );
         }
       } catch (error) {

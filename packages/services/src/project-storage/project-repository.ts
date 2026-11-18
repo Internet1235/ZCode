@@ -28,6 +28,7 @@ import type { ProjectDataRepositoryContract } from "#src/project-storage/purge/c
 import {
   assertRemoteProjectRoots,
   assertRemoteTaskDirectories,
+  isSourceWebInvocation,
 } from "#src/project-storage/remote-policy.js";
 
 const executionDirectoriesSchema = z.array(z.string().min(1)).max(256);
@@ -117,6 +118,7 @@ function resolveDirectories(
   db: DatabaseSync,
   task: ProjectTaskRef,
   ownerHostId = "local",
+  allowProjectless = false,
 ): ProjectDirectories {
   const row = readTask(db, task);
   // 旧远端影子行仍可能保留；行与项目一致不代表当前 Host 有权加载其目录。
@@ -135,6 +137,7 @@ function resolveDirectories(
     typeof row?.execution_directories === "string"
       ? executionDirectoriesSchema.parse(JSON.parse(row.execution_directories))
       : [],
+    allowProjectless,
   );
   return {
     workspacePath,
@@ -202,8 +205,8 @@ export class ProjectRepository implements ProjectRepositoryContract, ProjectData
   constructor(
     private readonly db: DatabaseSync,
     private readonly ownerHostId?: string,
+    private readonly allowProjectless = isSourceWebInvocation(),
   ) {}
-
   archiveInactive(input: AutoArchiveInput): ProjectTaskRef[] {
     return transaction(this.db, () => {
       const active = new Set(
@@ -522,7 +525,11 @@ export class ProjectRepository implements ProjectRepositoryContract, ProjectData
   }
 
   resolveSessionDirectories(task: ProjectTaskRef): ProjectDirectories {
-    return transaction(this.db, () => resolveDirectories(this.db, task, this.ownerHostId), false);
+    return transaction(
+      this.db,
+      () => resolveDirectories(this.db, task, this.ownerHostId, this.allowProjectless),
+      false,
+    );
   }
 
   findCreationReceipts(
@@ -553,7 +560,12 @@ export class ProjectRepository implements ProjectRepositoryContract, ProjectData
             };
             return {
               sessionId: task.taskId,
-              directories: resolveDirectories(this.db, task, this.ownerHostId),
+              directories: resolveDirectories(
+                this.db,
+                task,
+                this.ownerHostId,
+                this.allowProjectless,
+              ),
             };
           }),
       false,
@@ -574,7 +586,12 @@ export class ProjectRepository implements ProjectRepositoryContract, ProjectData
         input.task.taskId === input.parentTaskId
       )
         throw new Error("project.task-not-found");
-      const directories = resolveDirectories(this.db, parentRef, this.ownerHostId);
+      const directories = resolveDirectories(
+        this.db,
+        parentRef,
+        this.ownerHostId,
+        this.allowProjectless,
+      );
       if (directories.workspacePath !== input.task.workspacePath)
         throw new Error("project.cwd-not-in-roots");
       // ACK 先到时也必须沿用首次事实摄入的父行继承规则，否则子任务丢失 worktree 标记，
@@ -627,15 +644,14 @@ export class ProjectRepository implements ProjectRepositoryContract, ProjectData
             input.task.taskId,
           );
       }
-      return resolveDirectories(this.db, input.task, this.ownerHostId);
+      return resolveDirectories(this.db, input.task, this.ownerHostId, this.allowProjectless);
     });
   }
 
   reserveCreatedTask(
     input: Parameters<ProjectRepositoryContract["reserveCreatedTask"]>[0],
   ): ProjectDirectories & { taskId: string } {
-    if ("parentTaskId" in input)
-      return { ...this.reserveForkedTask(input), taskId: input.task.taskId };
+    if ("parentTaskId" in input) return { ...this.reserveForkedTask(input), taskId: input.task.taskId };
     return transaction(this.db, () => {
       const key = resolveWorkspaceKey(input.task);
       const host = ensureHost(this.db, key, this.ownerHostId);
@@ -682,6 +698,7 @@ export class ProjectRepository implements ProjectRepositoryContract, ProjectData
           input.projectId ? requireProject(this.db, input.projectId) : null,
           task.workspacePath,
           input.additionalDirectories,
+          this.allowProjectless,
         );
         if (input.projectId) {
           const project = requireProject(this.db, input.projectId);
@@ -713,7 +730,12 @@ export class ProjectRepository implements ProjectRepositoryContract, ProjectData
             placement?.worktreeRoot ?? inherited?.worktreeRoot ?? null,
           );
       }
-      const directories = resolveDirectories(this.db, task, this.ownerHostId);
+      const directories = resolveDirectories(
+        this.db,
+        task,
+        this.ownerHostId,
+        this.allowProjectless,
+      );
       // 旧客户端重试发生在 CLI 去重之前；同事务记录首次分配，避免产生额外任务预留。
       if (command && !receipt) {
         this.db

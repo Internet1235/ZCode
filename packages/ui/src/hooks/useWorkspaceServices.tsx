@@ -1,7 +1,12 @@
 import type { IServiceAccessor } from "@zcode/services";
 import { Event, ProxyChannel, type IChannel } from "@zcode/rpc";
 import { useMemo } from "react";
-import { useOptionalServices, useServices } from "@/hooks/useServices.js";
+import {
+  isDirectSourceWorkspace,
+  useDirectSourceHostId,
+  useOptionalServices,
+  useServices,
+} from "@/hooks/useServices.js";
 import {
   useRemoteWorkspaceSessionStore,
   type RemoteWorkspaceSession,
@@ -80,9 +85,15 @@ export function resolveBaseWorkspaceServices(
   return registeredBaseServices ?? contextServices;
 }
 
-function hasRemoteWorkspaceMetadata(tab: WorkspaceServiceTargetTab | null | undefined): boolean {
+function hasRemoteWorkspaceMetadata(
+  tab: WorkspaceServiceTargetTab | null | undefined,
+  directSourceHostId?: string,
+): boolean {
   return Boolean(
-    tab?.workspaceIdentity?.trim() || tab?.remoteSessionId?.trim() || tab?.remoteTarget,
+    (tab?.workspaceIdentity?.trim() &&
+      !isDirectSourceWorkspace(tab.workspaceIdentity, directSourceHostId)) ||
+    tab?.remoteSessionId?.trim() ||
+    tab?.remoteTarget,
   );
 }
 
@@ -94,7 +105,14 @@ export function resolveWorkspaceServiceIsRemoteTarget(params: {
   activeWorkspaceIdentity?: string | null;
   activeTab?: WorkspaceServiceTargetTab | null;
   workspaceTabs?: readonly WorkspaceServiceTargetTab[];
+  directSourceHostId?: string;
 }): boolean {
+  // 当前 Source 的 identity 仍用于隔离，但普通 Web 已持有根连接，不等待外部 attachment。
+  if (
+    !params.preferredRemoteSessionId &&
+    isDirectSourceWorkspace(params.workspaceIdentity, params.directSourceHostId)
+  )
+    return false;
   if (params.workspaceIdentity?.trim() || params.preferredRemoteSessionId?.trim()) {
     return true;
   }
@@ -105,7 +123,10 @@ export function resolveWorkspaceServiceIsRemoteTarget(params: {
   }
 
   if (params.activeWorkspacePath === params.workspacePath) {
-    if (params.activeWorkspaceIdentity?.trim()) {
+    if (
+      params.activeWorkspaceIdentity?.trim() &&
+      !isDirectSourceWorkspace(params.activeWorkspaceIdentity, params.directSourceHostId)
+    ) {
       return true;
     }
 
@@ -114,7 +135,7 @@ export function resolveWorkspaceServiceIsRemoteTarget(params: {
     // 这里用当前 tab 的远程元数据兜住这类 path-only 调用，避免远程目标误回落到本机 host。
     if (
       params.activeTab?.workspacePath === params.workspacePath &&
-      hasRemoteWorkspaceMetadata(params.activeTab)
+      hasRemoteWorkspaceMetadata(params.activeTab, params.directSourceHostId)
     ) {
       return true;
     }
@@ -123,7 +144,10 @@ export function resolveWorkspaceServiceIsRemoteTarget(params: {
   const matchingTabs = (params.workspaceTabs ?? []).filter(
     (tab) => tab.workspacePath === params.workspacePath,
   );
-  return matchingTabs.length === 1 && hasRemoteWorkspaceMetadata(matchingTabs[0]);
+  return (
+    matchingTabs.length === 1 &&
+    hasRemoteWorkspaceMetadata(matchingTabs[0], params.directSourceHostId)
+  );
 }
 
 export function useBaseWorkspaceServices(): IServiceAccessor {
@@ -163,6 +187,7 @@ export function useWorkspaceServicesResolution(
   options?: { unscopedServices?: IServiceAccessor; forceUnscoped?: boolean },
 ): WorkspaceServicesResolution {
   const currentContextServices = useServices();
+  const directSourceHostId = useDirectSourceHostId();
   const resolvedRemoteSessionId = useResolvedRemoteWorkspaceSessionId(
     workspacePath,
     preferredRemoteSessionId,
@@ -174,6 +199,7 @@ export function useWorkspaceServicesResolution(
       workspacePath,
       workspaceIdentity,
       preferredRemoteSessionId,
+      directSourceHostId,
       activeWorkspacePath: state.activeWorkspacePath,
       activeWorkspaceIdentity: state.activeWorkspaceIdentity,
       activeTab: (() => {

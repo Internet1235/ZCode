@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { resolveWorkspaceHookTrustIdentityForWorkspace } from "@zcode/adapters/config";
 import type { SessionId } from "@zcode/contracts";
 import {
@@ -291,6 +292,7 @@ export class ZCodeProtocolAgentServer {
   });
   private readonly runtimeResources: ProtocolRuntimeResources;
   private shutdownPromise?: Promise<void>;
+  private readonly parentRequest = new AsyncLocalStorage<ZCodeProtocolRequestId>();
   readonly browserControlPort: BrowserControlPort;
   /**
    * 官方 MCP 身份头端口所需的最小上下文。
@@ -576,7 +578,7 @@ export class ZCodeProtocolAgentServer {
       return undefined;
     }
     if (isRequest(message)) {
-      return await this.handleRequest(message);
+      return await this.parentRequest.run(message.id, () => this.handleRequest(message));
     }
     if (isNotification(message)) {
       if (message.method === zcodeProtocolMethods.processNetworkCapture) {
@@ -1193,6 +1195,7 @@ export class ZCodeProtocolAgentServer {
           id,
           method,
           params,
+          ...(this.parentRequest.getStore() === undefined ? {} : { parentRequestId: this.parentRequest.getStore() }),
           ...(options?.trace ? { trace: options.trace } : {}),
         });
       };

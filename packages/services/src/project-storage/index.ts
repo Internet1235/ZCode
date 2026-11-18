@@ -1,4 +1,9 @@
 import type { DatabaseSync } from "node:sqlite";
+export {
+  runSourceWebInvocation,
+  isSourceWebInvocation,
+  captureSourceWebInvocation,
+} from "#src/project-storage/remote-policy.js";
 import { ProjectRepository } from "#src/project-storage/project-repository.js";
 import { sqliteMigrations } from "@zcode/shared/sqlite-migrations";
 import type { ProjectStorageContract } from "#src/project-storage/contract.js";

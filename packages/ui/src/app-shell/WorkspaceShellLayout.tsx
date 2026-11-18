@@ -44,7 +44,8 @@ import {
   usePaneSessionPersistence,
   useRemotePaneSessionLookup,
 } from "@/v4/usePaneSessionPersistence.js";
-import { requestV4ComposerDraftWorkspaceTransfer } from "@/v4/composer/composerDraftWorkspaceTransfer.js";
+import { captureV4ComposerDraftHandoff } from "@/v4/composer/composerDraftWorkspaceTransfer.js";
+import { useComposerClientNamespace, useDirectSourceHostId } from "@/hooks/useServices.js";
 import { ProjectComposerMenu, ProjectDirectoryProvider } from "@/project-sidebar/index.js";
 import { DesktopTopOverlay } from "@/DesktopTopOverlay.js";
 import { DesktopWindowFrame } from "@/DesktopWindowFrame.js";
@@ -333,7 +334,6 @@ const WorkspaceShellLayoutContent = memo(function WorkspaceShellLayoutComponent(
   onCreateTask,
   onCreateConversationTask,
   onCreateConversationTaskOnSource,
-  onResolveConversationWorkspace,
   onOpenWorkspace,
   onOpenFolderFromWorkspaceMenu,
   onOpenRemoteWorkspace,
@@ -1502,7 +1502,7 @@ const WorkspaceShellLayoutContent = memo(function WorkspaceShellLayoutComponent(
         return;
       }
       showChatMainView();
-      onCreateTask(request);
+      return onCreateTask(request);
     },
     [onCreateTask, showChatMainView, workspaceReadOnlyReason],
   );
@@ -1539,6 +1539,7 @@ const WorkspaceShellLayoutContent = memo(function WorkspaceShellLayoutComponent(
   );
   // 工作流「运行」现由中枢直接启动（docs/dynamic-workflow/launch.md）：GUI 建空会话 +
   // 发 startSavedWorkflow 命令，不再合成对话文案。本层只在 accepted 后把会话切到前台。
+  const directSourceHostId = useDirectSourceHostId();
   const handleSelectTaskInChat = useCallback(
     (
       targetWorkspacePath: string,
@@ -1551,9 +1552,10 @@ const WorkspaceShellLayoutContent = memo(function WorkspaceShellLayoutComponent(
         const workspaceResult = ensureTaskNavigationWorkspace({
           workspacePath: targetWorkspacePath,
           workspaceIdentity: targetWorkspaceIdentity,
+          directSourceHostId,
           activateTabByPath: tabStoreApi.getState().activateTabByPath,
-          addLocalWorkspaceTab: (workspacePath) => {
-            tabStoreApi.getState().addTab(workspacePath);
+          addLocalWorkspaceTab: (workspacePath, identity) => {
+            tabStoreApi.getState().addTab(workspacePath, { workspaceIdentity: identity });
           },
         });
         if (!workspaceResult.accepted) {
@@ -1600,7 +1602,14 @@ const WorkspaceShellLayoutContent = memo(function WorkspaceShellLayoutComponent(
         handleSelectTask(targetWorkspacePath, taskId, targetWorkspaceIdentity);
       }
     },
-    [handleSelectTask, intl, isWebRemoteControlShell, showChatMainView, tabStoreApi],
+    [
+      directSourceHostId,
+      handleSelectTask,
+      intl,
+      isWebRemoteControlShell,
+      showChatMainView,
+      tabStoreApi,
+    ],
   );
   // 中枢直接启动 accepted 后切到新会话（run 卡已在顶部）：复用运行历史那条导航，
   // target 恒带工作流所属项目坐标（不变式 7），remoteSessionId 决定连接 endpoint。
@@ -1766,48 +1775,23 @@ const WorkspaceShellLayoutContent = memo(function WorkspaceShellLayoutComponent(
     },
     [handleStartDraftInWorkspace, showChatMainView],
   );
-  const handleCreateProjectDraft = useCallback(
-    (path: string, identity?: string) =>
-      handleStartDraftInWorkspaceInChat(path, identity, undefined, "project"),
-    [handleStartDraftInWorkspaceInChat],
-  );
   const activeWorkspacePurpose = currentWorkspaceTab?.workspacePurpose ?? "project";
+  const composerClientNamespace = useComposerClientNamespace();
   const handleSelectConversationWorkspace = useCallback(async () => {
-    if (!onResolveConversationWorkspace) {
-      return;
-    }
-    let target: Awaited<ReturnType<typeof onResolveConversationWorkspace>>;
-    try {
-      target = await onResolveConversationWorkspace();
-    } catch (error) {
-      logger.error("[WorkspaceShellLayout] 切换对话 workspace 失败", {
-        error,
-      });
-      return;
-    }
-    // Bug 原因：这里曾用 targetWorkspacePath 在 workspaceTabs 里反查 conversation tab 的 identity。
-    // 多设备的 conversation backing path 同为各自 home 下的固定目录，home 相同时会命中别的设备。
-    // 现在 identity 由 Root 按 Source 归属解析后一并回传，Shell 直接消费，不再按路径判等。
-    const targetWorkspaceKey = target.workspaceIdentity?.trim() || target.workspacePath;
-    if ((workspaceIdentity?.trim() || workspaceAbsPath) !== targetWorkspaceKey) {
-      requestV4ComposerDraftWorkspaceTransfer({
-        sourceWorkspacePath: workspaceAbsPath,
-        sourceWorkspaceIdentity: workspaceIdentity,
-        targetWorkspacePath: target.workspacePath,
-        targetWorkspaceIdentity: target.workspaceIdentity,
-      });
-    }
-    handleStartDraftInWorkspaceInChat(
-      target.workspacePath,
-      target.workspaceIdentity,
-      "conversation",
-    );
-  }, [
-    handleStartDraftInWorkspaceInChat,
-    onResolveConversationWorkspace,
-    workspaceAbsPath,
-    workspaceIdentity,
-  ]);
+    // 原因：简化初始化重新继承项目，解除后仍显示原项目；统一由 Root 提交显式空归属。
+    const workspace = useZCodeSessionStore
+      .getState()
+      .getWorkspaceState(workspaceAbsPath, workspaceIdentity);
+    return handleCreateTaskInChat({
+      projectId: null,
+      initialComposerDraft: captureV4ComposerDraftHandoff(
+        workspaceAbsPath,
+        workspaceIdentity,
+        composerClientNamespace,
+      ),
+      taskGroupId: workspace.activeTaskId ? null : (workspace.draftTaskGroupId ?? null),
+    });
+  }, [handleCreateTaskInChat, composerClientNamespace, workspaceAbsPath, workspaceIdentity]);
   const handleSelectComposerPlugin = useCallback(
     (mention: ComposerMentionPrefill) => {
       useZCodeSessionStore

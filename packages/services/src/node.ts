@@ -4,6 +4,22 @@ import {
   projectWorkspaceSettings,
   readRemoteProjectDirectory,
 } from "#src/remote-projects/index.js";
+import type { IChannelServer } from "@zcode/rpc";
+import { runSourceWebInvocation } from "#src/project-storage/index.js";
+
+/** 普通 Source /ws 的可信发布边界，每次调用独立捕获，不改变服务或 owner。 */
+export function scopeSourceWebChannelServer(server: IChannelServer): IChannelServer {
+  return {
+    registerChannel(name, channel) {
+      server.registerChannel(name, {
+        call: (ctx, command, args, token) =>
+          runSourceWebInvocation(() => channel.call(ctx, command, args, token)),
+        listen: (ctx, event, args) => channel.listen(ctx, event, args),
+      });
+    },
+    ready: () => server.ready?.(),
+  };
+}
 export {
   createRemoteProjectConnectionAdmission,
   releaseRemoteProjectProfileHost,

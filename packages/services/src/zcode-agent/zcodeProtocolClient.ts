@@ -7,6 +7,7 @@ import {
   sessionLifecycleSnapshotSchema,
   sessionLifecycleResultSchema,
 } from "@zcode/shared";
+import { captureSourceWebInvocation } from "#src/project-storage/index.js";
 import { ZCodeStorageStartupGate } from "#src/zcode-agent/zcodeStorageStartupGate.js";
 import { Emitter } from "@zcode/rpc";
 import { zcodePluginStartupDegradedSchema, zcodeProtocolNotifications } from "@zcode/shared";
@@ -37,6 +38,7 @@ export interface ZCodeProtocolRequestTimeoutEvent {
 }
 
 interface PendingRequest<T> {
+  invocation: ReturnType<typeof captureSourceWebInvocation>;
   method: string;
   observation: boolean;
   timeout: ReturnType<typeof setTimeout>;
@@ -269,6 +271,7 @@ export class ZCodeProtocolClient implements IDisposable {
         );
       };
       const pending: PendingRequest<T> = {
+        invocation: captureSourceWebInvocation(() => this.pending.get(String(id)) === pending),
         method,
         observation,
         timeout,
@@ -397,7 +400,15 @@ export class ZCodeProtocolClient implements IDisposable {
     }
 
     if ("method" in message && "id" in message) {
-      this.requestEmitter.fire(message as ZCodeProtocolRequest);
+      const request = message as ZCodeProtocolRequest;
+      // 反向请求只能恢复同一 client 尚未结束的父调用，不能借用长期 trace/runtime。
+      const parent =
+        request.parentRequestId === undefined
+          ? undefined
+          : this.pending.get(String(request.parentRequestId));
+      (parent?.invocation ?? captureSourceWebInvocation(() => false))(() =>
+        this.requestEmitter.fire(request),
+      );
       return;
     }
 

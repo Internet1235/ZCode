@@ -4,6 +4,7 @@ import { chmod, mkdir, readFile, stat, unlink } from "node:fs/promises";
 import { hostname } from "node:os";
 import { resolveServerOsUser } from "@zcode/shared/node";
 import * as nodePath from "node:path";
+import { scopeSourceWebChannelServer } from "@zcode/services/node";
 import { basename, dirname, extname, relative, resolve, sep } from "node:path";
 import { Hono, type Context } from "hono";
 import { createAdaptorServer } from "@hono/node-server";
@@ -94,6 +95,7 @@ function setupChannelServer(
   clientMode: "desktop-continuous" | "web-remote-replayable",
   workspaceIdentityMapper?: SourceServerWorkspaceIdentityMapper,
   resourcePeers?: TopicResourcePeers,
+  sourceWebIngress = false,
 ) {
   const socket = wrapWebSocket(ws);
   const protocol = new SocketProtocol(socket);
@@ -132,7 +134,10 @@ function setupChannelServer(
       },
     });
   }
-  services.exposeOnChannelServer(server, overrides);
+  services.exposeOnChannelServer(
+    sourceWebIngress ? scopeSourceWebChannelServer(server) : server,
+    overrides,
+  );
   socket.onClose(() => {
     peer?.dispose();
     reverseClient?.dispose();
@@ -511,6 +516,8 @@ function createHttpApplication(
           services,
           "web-remote-replayable",
           options.workspaceIdentityMapper,
+          undefined,
+          true,
         );
       },
     })),
