@@ -21,10 +21,11 @@ import { reportAppTelemetryEvent } from "@/lib/appTelemetry.js";
 import { resolveLogoutProviderFamilyDomain } from "@/lib/providerFamilyDomainSettings.js";
 import { isRendererReloadNavigation } from "@/lib/rendererNavigation.js";
 import { parseWslUncWorkspacePath } from "@/lib/wslUncWorkspace.js";
+import { resolveWorkspaceSwitchDraftProvider } from "@/lib/workspaceDraftProvider.js";
 import { logger } from "@/logger.js";
 import { toast } from "@/components/ui/toast.js";
 import { ensureTaskNavigationWorkspace } from "@/app-shell/taskNavigationWorkspace.js";
-import { useComposerClientNamespace } from "@/hooks/useServices.js";
+import { useComposerClientNamespace, useDirectSourceHostId } from "@/hooks/useServices.js";
 import {
   resolveComposerScope,
   ensurePendingTaskDraft,
@@ -177,6 +178,7 @@ export function useRootWorkspaceActions({
   }, [workbenchGroupClientMode]);
 
   const composerClientNamespace = useComposerClientNamespace();
+  const directSourceHostId = useDirectSourceHostId();
   const startDraftInWorkspace = useCallback(
     (workspacePath: string, workspaceIdentity?: string, options?: CreateTaskOptions) => {
       const projectId =
@@ -218,6 +220,7 @@ export function useRootWorkspaceActions({
         .startDraft(workspacePath, options?.provider, workspaceIdentity, {
           projectId,
           taskGroupId,
+          createSource: options?.createSource,
         });
       if (options?.initialComposerDraft) {
         stageV4ComposerDraftAttachments(
@@ -282,6 +285,7 @@ export function useRootWorkspaceActions({
         if (
           requestOptions.taskGroupId === undefined &&
           requestOptions.projectId === undefined &&
+          requestOptions.targetWorkspace?.projectId === undefined &&
           readProjectSidebarView() === "grouped" &&
           activeWorkspacePath
         ) {
@@ -301,7 +305,9 @@ export function useRootWorkspaceActions({
         let projectId =
           typeof request === "string"
             ? undefined
-            : (request?.projectId ?? request?.targetWorkspace?.projectId);
+            : request?.projectId !== undefined
+              ? request.projectId
+              : request?.targetWorkspace?.projectId;
         let hostId =
           typeof request === "string"
             ? undefined
@@ -309,7 +315,7 @@ export function useRootWorkspaceActions({
         const hasExplicitProject =
           typeof request === "object" &&
           request !== null &&
-          ("projectId" in request || Boolean(request.targetWorkspace?.projectId));
+          (request.projectId !== undefined || request.targetWorkspace?.projectId !== undefined);
         const newTaskTarget = resolveNewTaskTargetFromRequest(request, () =>
           resolveWorkbenchNewTaskTarget({
             activeWorkspacePath,
@@ -339,26 +345,29 @@ export function useRootWorkspaceActions({
             ? await services.projectService?.readTree(hostId ? { hostId } : undefined)
             : undefined;
           if (workspace.activeTaskId && !tree) throw new Error("project.service-unavailable");
+          // 已有任务的 NULL 是明确空归属，不能与索引缺行的 undefined 混为一谈。
           projectId = workspace.activeTaskId
-            ? (tree?.tasks.find(
+            ? tree?.tasks.find(
                 (task) =>
                   task.taskId === workspace.activeTaskId &&
                   (task.workspaceIdentity?.trim() || task.workspacePath) ===
                     (newTaskTarget.workspaceIdentity?.trim() || newTaskTarget.workspacePath),
-              )?.projectId ?? undefined)
-            : (workspace.draftProjectId ?? undefined);
-          if (projectId && (!hostId || hostId === "local")) {
+              )?.projectId
+            : workspace.draftProjectId;
+          if (projectId && (!hostId || hostId === "local" || hostId === directSourceHostId)) {
             // 软删除保留历史 project_id；把它直接继承给新任务会报 not-found 并停在旧页。
             // 当前服务已按 owner 过滤项目；Source owner 不一定是 local，不能因此丢掉合法归属。
             // 草稿也复验；读取失败仍报错，不冒充项目已删除。
             const projects = tree?.projects ?? (await services.projectService?.readProjects());
             if (!projects) throw new Error("project.service-unavailable");
             if (!projects.some((project) => project.id === projectId && !project.deleted)) {
-              logger.debug("[Root] 新任务不继承已删除的当前服务项目", { projectId });
+              logger.debug("[Root] 新任务不继承已删除的当前服务项目", {
+                projectId,
+              });
               projectId = undefined;
             }
           }
-          if (hostId && hostId !== "local" && !projectId)
+          if (hostId && hostId !== "local" && hostId !== directSourceHostId && !projectId)
             throw new Error("project.remote-project-required");
         }
         if (!isCurrent()) return;
@@ -367,14 +376,14 @@ export function useRootWorkspaceActions({
           // 归属先在共享入口解析，目录仍只由 bridge owner 准备；旧 Root 不写交接后的草稿。
           await openMobileProjectDraft({
             ...requestOptions,
-            ...(projectId ? { projectId } : {}),
+            ...(projectId !== undefined ? { projectId } : {}),
             ...(hostId ? { hostId } : {}),
           });
           return;
         }
         if (!services.projectService) throw new Error("project.service-unavailable");
         const pendingDraft =
-          !projectId && (!hostId || hostId === "local")
+          !projectId && (!hostId || hostId === "local" || hostId === directSourceHostId)
             ? ensurePendingTaskDraft(resolveComposerScope(null, undefined, composerClientNamespace))
             : null;
         const target = await services.projectService.prepareSession({
@@ -386,11 +395,14 @@ export function useRootWorkspaceActions({
             : {}),
           // 显式 local 与省略 Host 是同一入口，不能漏掉待发送身份而另建目录。
           ...(pendingDraft
-            ? { draftId: pendingDraft.draftId, reuseDraft: Boolean(pendingDraft.workspacePath) }
+            ? {
+                draftId: pendingDraft.draftId,
+                reuseDraft: Boolean(pendingDraft.workspacePath),
+              }
             : {}),
         });
         if (!isCurrent()) return;
-        if (hostId && hostId !== "local") {
+        if (hostId && hostId !== "local" && hostId !== directSourceHostId) {
           if (!target.workspaceIdentity || !openRemoteProjectWorkspace)
             throw new Error("project.remote-navigation-unavailable");
           await openRemoteProjectWorkspace({
@@ -403,13 +415,23 @@ export function useRootWorkspaceActions({
           });
         }
         // 目录准备成功才提交导航；失败保留当前会话和分屏。
-        if (!hostId || hostId === "local")
+        if (!hostId || hostId === "local" || hostId === directSourceHostId)
           addTab(target.workspacePath, {
             workspacePurpose: target.projectId ? "project" : "conversation",
             ...(target.workspaceIdentity ? { workspaceIdentity: target.workspaceIdentity } : {}),
           });
         startDraftInWorkspace(target.workspacePath, target.workspaceIdentity, {
           ...(typeof request === "string" ? { provider: request } : request),
+          ...(requestOptions.initialComposerDraft && originWorkspace && !requestOptions.provider
+            ? {
+                provider: resolveWorkspaceSwitchDraftProvider({
+                  currentSelectedProvider: originWorkspace.selectedProvider,
+                  targetWorkspacePath: target.workspacePath,
+                  targetWorkspaceIdentity: target.workspaceIdentity,
+                  workspaces: useZCodeSessionStore.getState().workspaces,
+                }),
+              }
+            : {}),
           ...(pendingDraft ? { draftId: pendingDraft.draftId } : {}),
           projectId: target.projectId,
         });
@@ -445,6 +467,7 @@ export function useRootWorkspaceActions({
     [
       services.projectService,
       services.taskGroupService,
+      directSourceHostId,
       intl,
       composerClientNamespace,
       activeWorkspacePath,
@@ -791,9 +814,11 @@ export function useRootWorkspaceActions({
       const workspaceResult = ensureTaskNavigationWorkspace({
         workspacePath: target.workspacePath,
         workspaceIdentity: target.workspaceIdentity,
+        directSourceHostId,
         activateTabByPath: (workspacePath, options) =>
           tabStoreApi.getState().activateTabByPath(workspacePath, options),
-        addLocalWorkspaceTab: (workspacePath) => addTab(workspacePath),
+        addLocalWorkspaceTab: (workspacePath, workspaceIdentity) =>
+          addTab(workspacePath, { workspaceIdentity }),
       });
       if (!workspaceResult.accepted) {
         logger.warn("[Root] open task from settings rejected", {
@@ -807,7 +832,7 @@ export function useRootWorkspaceActions({
         .setActiveTaskId(target.workspacePath, target.taskId, target.workspaceIdentity);
       notifyTaskNavigationCommitted(target);
     },
-    [addTab, intl, tabStoreApi],
+    [addTab, directSourceHostId, intl, tabStoreApi],
   );
 
   return {

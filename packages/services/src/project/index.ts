@@ -5,6 +5,7 @@ import type { Stats } from "node:fs";
 import { mkdir, stat } from "node:fs/promises";
 import { isAbsolute, join, normalize } from "node:path";
 import type { ProjectRepositoryContract } from "#src/project-storage/contract.js";
+import { isSourceWebInvocation } from "#src/project-storage/index.js";
 import type { ProjectDataRepositoryContract } from "#src/project-storage/index.js";
 import type {
   IProjectService,
@@ -282,7 +283,8 @@ export function createProjectService(options: {
       const id = params?.projectId;
       const remoteOwner = Boolean(options.ownerHostId && options.ownerHostId !== "local");
       // 旧入口可绕过项目直接在远端 mkdir；必须在目录或会话副作用之前拒绝。
-      if (remoteOwner && !id) throw new Error("project.remote-project-required");
+      if (remoteOwner && !id && !isSourceWebInvocation())
+        throw new Error("project.remote-project-required");
       if (id && creationFlights.has(id)) return creationFlights.get(id)!;
       const flight = (async (): Promise<ProjectDirectories> => {
         if (!id) {

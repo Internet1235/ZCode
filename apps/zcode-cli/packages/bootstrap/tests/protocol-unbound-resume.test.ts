@@ -34,6 +34,7 @@ describe("真实 Protocol/App/SQLite 的未绑定创建", () => {
   it("V4 未绑定与显式选择的创建均不构造 legacy 快照", async () => {
     const store = await createSqliteSessionStore({ dbPath: ":memory:" });
     const apps: Awaited<ReturnType<typeof createRegistryBackedTestApp>>[] = [];
+    const runtimeParents: unknown[] = [];
     // 未绑定创建必须明确使用空候选；公共测试 helper 会额外 seed 默认模型。
     let registry = new ProviderRegistry([]);
     const server = new ZCodeProtocolAgentServer({
@@ -57,6 +58,7 @@ describe("真实 Protocol/App/SQLite 的未绑定创建", () => {
         "id" in message &&
         message.method === zcodeProtocolMethods.sessionRequestRuntimePreferences
       ) {
+        runtimeParents.push(message.parentRequestId);
         void server.handleMessage({
           id: message.id,
           result: { nativeSearchEnhancementsEnabled: false, memoryEnabled: false },
@@ -83,6 +85,7 @@ describe("真实 Protocol/App/SQLite 的未绑定创建", () => {
         },
       });
       expect(apps[0]?.runtime.getSessionModelSelection()).toBeUndefined();
+      expect(runtimeParents).toContain("create");
       registry = createTestProviderRegistry([identity]);
       const selected = await server.handleMessage({
         id: "select",
@@ -125,6 +128,8 @@ describe("真实 Protocol/App/SQLite 的未绑定创建", () => {
       expect(messages[1]?.info).not.toHaveProperty("modelId");
       expect(messages[1]?.info).not.toHaveProperty("providerId");
       expect(apps[2]?.runtime.getSessionModelSelection()).toBeUndefined();
+      expect(runtimeParents).toEqual(expect.arrayContaining(["create", "select", "import"]));
+      expect(runtimeParents).not.toContain(undefined);
     } finally {
       for (const app of apps) await app.close();
       store.close();
@@ -162,6 +167,7 @@ describe.each(["desktop-continuous", "web-remote-replayable"] as const)(
         usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
       }));
       const apps: Awaited<ReturnType<typeof createRegistryBackedTestApp>>[] = [];
+      const runtimeParents: unknown[] = [];
       const server = new ZCodeProtocolAgentServer({
         cwd: process.cwd(),
         sessionStore: store,
@@ -183,11 +189,13 @@ describe.each(["desktop-continuous", "web-remote-replayable"] as const)(
         if (
           "id" in message &&
           message.method === zcodeProtocolMethods.sessionRequestRuntimePreferences
-        )
+        ) {
+          runtimeParents.push(message.parentRequestId);
           void server.handleMessage({
             id: message.id,
             result: { nativeSearchEnhancementsEnabled: false, memoryEnabled: false },
           });
+        }
       });
       try {
         const subscribed = await server.handleMessage({
@@ -243,6 +251,10 @@ describe.each(["desktop-continuous", "web-remote-replayable"] as const)(
           { timeout: 10_000 },
         );
         expect(generateText).toHaveBeenCalledOnce();
+        expect(runtimeParents.length).toBeGreaterThan(0);
+        expect(runtimeParents.every((id) =>
+          ["bot-cold-subscribe", "bot-provider-unavailable", "bot-cold-input"].includes(String(id)),
+        )).toBe(true);
         expect(apps[0]?.runtime.getSessionModelSelection()).toEqual(complete);
         expect(
           (await store.sessionEntries({ sessionID, type: SESSION_ENTRY_MODEL_SELECTION })).at(-1)

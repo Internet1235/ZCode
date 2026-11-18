@@ -16,6 +16,9 @@ import {
   resolveWebRemoteControlRelayWsUrl,
   matchesWebRemoteControlRoutePath,
   resolveWebRemoteControlWorkspaceKey,
+  serverRemoteInfoSchema,
+  buildServerRemoteWorkspaceIdentity,
+  remoteHostIdFromWorkspaceIdentity,
 } from "@zcode/shared";
 /* eslint-disable max-lines -- Web 远程控制启动、错误页和 web 平台桥接暂时集中在入口编排。 */
 import type { ComponentProps } from "react";
@@ -72,7 +75,6 @@ import type {
   WebRemoteControlWorkspaceSwitchOptions,
   WebRemoteControlAppPayload,
   WebRemoteControlExternalWorkspaceBridge,
-  ServerRemoteInfo,
 } from "@zcode/shared";
 
 import {
@@ -241,6 +243,7 @@ window.addEventListener("beforeunload", () => {
 
 interface WebBootstrapResult {
   wsUrl: string;
+  directSourceHostId?: string;
   initialWorkspaceAbsPath?: string;
   initialWorkspaceIdentity?: string;
   initialTaskId?: string;
@@ -469,10 +472,14 @@ async function resolveWebBootstrap(): Promise<WebBootstrapResult> {
     if (!response.ok) {
       return { wsUrl };
     }
-    const serverInfo = (await response.json()) as Partial<ServerRemoteInfo>;
+    const serverInfo = serverRemoteInfoSchema.parse(await response.json());
     const workspace = Array.isArray(serverInfo.workspaces) ? serverInfo.workspaces[0] : undefined;
     return {
       wsUrl,
+      directSourceHostId:
+        remoteHostIdFromWorkspaceIdentity(
+          buildServerRemoteWorkspaceIdentity({ serverId: serverInfo.serverId, workspacePath: "/" }),
+        ) ?? undefined,
       ...(workspace?.path ? { initialWorkspaceAbsPath: workspace.path } : {}),
       ...(workspace?.workspaceIdentity
         ? { initialWorkspaceIdentity: workspace.workspaceIdentity }
@@ -1884,6 +1891,7 @@ async function bootstrapWebApp() {
             services={services}
             platform={platform}
             initialWorkspaceAbsPath={bootstrap.initialWorkspaceAbsPath}
+            directSourceHostId={bootstrap.directSourceHostId}
             initialWorkspaceIdentity={bootstrap.initialWorkspaceIdentity}
             initialTaskId={bootstrap.initialTaskId}
             restoreSession={bootstrap.restoreSession}

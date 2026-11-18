@@ -460,6 +460,7 @@ export const zcodeTopicResourceRelayChunkSchema = z
 export const zcodeProtocolRequestSchema = z
   .object({
     id: zcodeProtocolRequestIdSchema,
+    parentRequestId: zcodeProtocolRequestIdSchema.optional(),
     method: nonEmptyString,
     params: z.unknown().optional(),
     trace: zcodeProtocolTraceSchema.optional(),

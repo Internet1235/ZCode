@@ -45,6 +45,7 @@ import { ProjectFolderIcon } from "@/project-sidebar/ProjectFolderIcon.js";
 import { projectKey, projectSourceServerId } from "@/project-sidebar/view.js";
 import { useProjectSelectionDirectory } from "@/project-sidebar/ProjectDirectoryProvider.js";
 import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
+import { useDirectSourceHostId } from "@/hooks/useServices.js";
 
 export function ProjectComposerMenu({
   workspacePath,
@@ -253,6 +254,7 @@ export function ProjectComposerMenu({
     if (accepted === false) cancelSelection();
   };
   const currentDevice = connectedDevice?.isCurrent() ? connectedDevice : null;
+  const directSourceHostId = useDirectSourceHostId();
   const hostId = workspaceIdentity ? remoteHostIdFromWorkspaceIdentity(workspaceIdentity) : null;
   // 原因：目录可以属于多个项目，tab/cwd 不能决定归属；只读草稿的项目身份。
   const currentProject = projects.find(
@@ -268,7 +270,7 @@ export function ProjectComposerMenu({
     Boolean(service);
   const isConversationWorkspace = !currentProject;
   const canDetachProject =
-    !hostId &&
+    (!hostId || hostId === directSourceHostId) &&
     allowConversationWorkspaceSelection &&
     allowConversationWorkspaceDetach &&
     !isConversationWorkspace;
@@ -519,7 +521,7 @@ export function ProjectComposerMenu({
                 <span>{intl.formatMessage({ id: "chat.empty.newRemoteConnection" })}</span>
               </DropdownMenuItem>
             ) : null}
-            {allowConversationWorkspaceSelection && !hostId ? (
+            {allowConversationWorkspaceSelection && (!hostId || hostId === directSourceHostId) ? (
               <DropdownMenuCheckboxItem
                 data-testid={TID_COMPOSER_WORK_OUTSIDE_PROJECT}
                 checked={isConversationWorkspace}

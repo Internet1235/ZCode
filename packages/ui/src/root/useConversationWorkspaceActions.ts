@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import type { IServiceAccessor } from "@zcode/services";
 import { logger } from "@/logger.js";
 import type { TabStoreState } from "@/store/tabStore.js";
+import type { CreateTaskOptions } from "@/app-shell/types.js";
 
 export function useConversationWorkspaceActions({
   services,
@@ -11,7 +12,7 @@ export function useConversationWorkspaceActions({
 }: {
   services: IServiceAccessor;
   addTab: TabStoreState["addTab"];
-  createTask: (source: string) => Promise<void>;
+  createTask: (source: string, request?: CreateTaskOptions) => Promise<void>;
   setWorkspaceActionError: (error: string | null) => void;
 }) {
   const handleSelectConversationWorkspace = useCallback(
@@ -46,7 +47,7 @@ export function useConversationWorkspaceActions({
   }, [handleResolveConversationWorkspace, handleSelectConversationWorkspace]);
 
   const handleCreateConversationTask = useCallback(
-    () => createTask("task section new task"),
+    () => createTask("task section new task", { projectId: null }),
     [createTask],
   );
 

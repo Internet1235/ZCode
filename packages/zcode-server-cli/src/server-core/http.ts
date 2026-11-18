@@ -1,4 +1,7 @@
-import { scopeConversationShareServiceForAttachment } from "@zcode/services/node";
+import {
+  scopeConversationShareServiceForAttachment,
+  scopeSourceWebChannelServer,
+} from "@zcode/services/node";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { hostname } from "node:os";
 import { resolveServerOsUser } from "@zcode/shared/node";
@@ -107,6 +110,7 @@ function exposeWebSocket(
   clientMode: "desktop-continuous" | "web-remote-replayable",
   workspaceIdentityMapper?: SourceServerWorkspaceIdentityMapper,
   resourcePeers?: TopicResourcePeers,
+  sourceWebIngress = false,
 ): void {
   const socket = wrapWebSocket(ws);
   const protocol = new SocketProtocol(socket);
@@ -186,7 +190,10 @@ function exposeWebSocket(
       },
     });
   }
-  services.exposeOnChannelServer(server, overrides);
+  services.exposeOnChannelServer(
+    sourceWebIngress ? scopeSourceWebChannelServer(server) : server,
+    overrides,
+  );
   socket.onClose(() => {
     peer?.dispose();
     reverseClient?.dispose();
@@ -280,6 +287,8 @@ export async function createCoreHttpServer(
           services,
           "web-remote-replayable",
           options.workspaceIdentityMapper,
+          undefined,
+          true,
         );
       },
     })),

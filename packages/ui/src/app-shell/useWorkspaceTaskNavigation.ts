@@ -31,6 +31,7 @@ import {
   onTaskNavigationRequested,
 } from "@/store/zcodeSessionStoreNavigation.js";
 import { ensureTaskNavigationWorkspace } from "@/app-shell/taskNavigationWorkspace.js";
+import { isDirectSourceWorkspace, useDirectSourceHostId } from "@/hooks/useServices.js";
 import { selectWorkbenchSession } from "@/v4/workbenchSessionPlacement.js";
 
 export interface AutomationsNavigationTarget {
@@ -63,6 +64,7 @@ export function useWorkspaceTaskNavigation({
   // services 仍可能属于旧 remote attachment。local 目标必须固定从 window base attachment
   // 发起，再由 Host Controller 路由，不能把本地路径送进旧 remote scope。
   const baseServices = useBaseWorkspaceServices();
+  const directSourceHostId = useDirectSourceHostId();
   const tabStoreApi = useTabStoreApi();
   const setActiveTaskId = useZCodeSessionStore((s) => s.setActiveTaskId);
   const taskNavHistory = useZCodeSessionStore((s) => s.taskNavHistory);
@@ -113,9 +115,10 @@ export function useWorkspaceTaskNavigation({
       const workspaceResult = ensureTaskNavigationWorkspace({
         workspacePath: targetWorkspacePath,
         workspaceIdentity: targetWorkspaceIdentityHint,
+        directSourceHostId,
         activateTabByPath,
-        addLocalWorkspaceTab: (path) => {
-          tabStoreApi.getState().addTab(path);
+        addLocalWorkspaceTab: (path, identity) => {
+          tabStoreApi.getState().addTab(path, { workspaceIdentity: identity });
         },
       });
       if (!workspaceResult.accepted) {
@@ -159,7 +162,8 @@ export function useWorkspaceTaskNavigation({
         typeof selectedRowUnreadAt === "number" ? selectedRowUnreadAt : previousUnreadAt;
       const shouldClearUnread = typeof expectedUnreadAt === "number";
       const isRemoteWorkspace = Boolean(
-        targetWorkspaceIdentity ||
+        (targetWorkspaceIdentity &&
+          !isDirectSourceWorkspace(targetWorkspaceIdentity, directSourceHostId)) ||
         (activeTab &&
           isWorkspaceTab(activeTab) &&
           activeWorkspaceTabMatchesTarget &&
@@ -217,7 +221,15 @@ export function useWorkspaceTaskNavigation({
       setActiveTaskId(targetWorkspacePath, taskId, targetWorkspaceIdentity);
       onNavigateToTask?.();
     },
-    [activateTabByPath, intl, onNavigateToTask, baseServices, tabStoreApi, setActiveTaskId],
+    [
+      activateTabByPath,
+      intl,
+      onNavigateToTask,
+      baseServices,
+      directSourceHostId,
+      tabStoreApi,
+      setActiveTaskId,
+    ],
   );
 
   const handleOpenAutomations = useCallback(
@@ -298,7 +310,8 @@ export function useWorkspaceTaskNavigation({
           const remoteSessionId =
             targetTab && isWorkspaceTab(targetTab) ? targetTab.remoteSessionId : undefined;
           const remote = Boolean(
-            entry.workspaceIdentity ||
+            (entry.workspaceIdentity &&
+              !isDirectSourceWorkspace(entry.workspaceIdentity, directSourceHostId)) ||
             (targetTab && isWorkspaceTab(targetTab) && targetTab.remoteTarget),
           );
           const services = remoteSessionId
@@ -342,9 +355,10 @@ export function useWorkspaceTaskNavigation({
           const workspace = ensureTaskNavigationWorkspace({
             workspacePath: entry.workspacePath,
             workspaceIdentity: entry.workspaceIdentity,
+            directSourceHostId,
             activateTabByPath,
-            addLocalWorkspaceTab: (path) => {
-              tabStoreApi.getState().addTab(path);
+            addLocalWorkspaceTab: (path, identity) => {
+              tabStoreApi.getState().addTab(path, { workspaceIdentity: identity });
             },
           });
           if (!workspace.accepted) throw new Error("Navigation target is disconnected");
@@ -393,6 +407,7 @@ export function useWorkspaceTaskNavigation({
     [
       activateTabByPath,
       baseServices,
+      directSourceHostId,
       handleSelectTask,
       intl,
       isWebRemoteControl,

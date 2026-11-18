@@ -4,6 +4,7 @@ import { buildServerRemoteWorkspaceIdentity, type RemoteTarget } from "@zcode/sh
 import {
   TID_COMPOSER_WORK_OUTSIDE_PROJECT,
   TID_COMPOSER_WORKSPACE_TRIGGER,
+  TID_COMPOSER_PROJECT_DETACH,
 } from "@zcode/shared/test-ids";
 import {
   DEFAULT_WORKSPACE,
@@ -13,10 +14,6 @@ import {
 } from "#e2e/helpers/desktop-app";
 
 const CASE_MARKER = "E2E_LOCAL_CONVERSATION_IDENTITY";
-const REMOTE_IDENTITY = buildServerRemoteWorkspaceIdentity({
-  serverId: "25db8db2-d27b-40de-a23e-697b3c127234",
-  workspacePath: DEFAULT_WORKSPACE,
-});
 const artifactDir = resolve(
   process.env.ZCODE_E2E_ARTIFACT_DIR ?? ".e2e-artifacts/local-conversation-identity",
 );
@@ -31,6 +28,14 @@ interface NavigationTab {
 }
 
 interface NavigationWindow extends Window {
+  __zcodeSessionStoreE2E?: {
+    getState(): {
+      getWorkspaceState(
+        workspacePath: string,
+        workspaceIdentity?: string,
+      ): { draftProjectId?: string | null };
+    };
+  };
   __zcodeTabStoreE2E?: {
     getState(): {
       tabs: NavigationTab[];
@@ -65,6 +70,20 @@ async function readNavigation() {
   });
 }
 
+async function readDraftProjectId() {
+  return browser.execute(() => {
+    const navigation = (window as NavigationWindow).__zcodeTabStoreE2E?.getState();
+    const sessions = (window as NavigationWindow).__zcodeSessionStoreE2E;
+    if (!navigation?.activeWorkspacePath || !sessions) throw new Error("草稿 store 未就绪");
+    return sessions
+      .getState()
+      .getWorkspaceState(
+        navigation.activeWorkspacePath,
+        navigation.activeWorkspaceIdentity ?? undefined,
+      ).draftProjectId;
+  });
+}
+
 describe(`${CASE_MARKER}: 本地项目解除绑定按完整工作区身份匹配`, () => {
   const facts: Record<string, unknown> = {};
 
@@ -83,6 +102,28 @@ describe(`${CASE_MARKER}: 本地项目解除绑定按完整工作区身份匹配
   it("RPN-12 本地项目与离线远端同路径且远端在前，仍能在项目外工作", async function () {
     this.timeout(60_000);
     await waitForWorkspaceApp(DEFAULT_WORKSPACE, 30_000);
+    const projectName = "E2E_DETACH_EXISTING_PROJECT";
+    await $('[data-testid="virtual-project-add"]').click();
+    await $('[data-testid="virtual-project-name"]').setValue(projectName);
+    await $('[data-testid="virtual-project-save"]').click();
+    await $(`[data-project-name="${projectName}"]`).waitForExist();
+    await $('[data-slot="dialog-overlay"]').waitForExist({ reverse: true });
+    await $(`[data-testid="${TID_COMPOSER_WORKSPACE_TRIGGER}"]`).click();
+    await $(`[data-testid="composer-project-menu"] [data-project-name="${projectName}"]`).click();
+    await browser.waitUntil(async () =>
+      (await $(`[data-testid="${TID_COMPOSER_WORKSPACE_TRIGGER}"]`).getText()).includes(
+        projectName,
+      ),
+    );
+    expect(await readDraftProjectId()).toBeTruthy();
+    const selectedProject = await readNavigation();
+    const projectPath = selectedProject.activeWorkspacePath;
+    if (!projectPath) throw new Error("项目工作区未就绪");
+    const remoteIdentity = buildServerRemoteWorkspaceIdentity({
+      serverId: "25db8db2-d27b-40de-a23e-697b3c127234",
+      workspacePath: projectPath,
+    });
+    // 项目选择会创建独立 cwd；离线远端必须使用选择后的路径才能覆盖同路径身份隔离。
     // 只构造离线 open-set，不连接 SSH；调用真实 store 的 add/activate，复现新 tab 置顶的顺序。
     const localId = await browser.execute(
       (path, identity) => {
@@ -96,20 +137,25 @@ describe(`${CASE_MARKER}: 本地项目解除绑定按完整工作区身份匹配
         if (!store || !localTab) throw new Error("本地项目 tab 未就绪");
         store.getState().addTab(path, {
           workspaceIdentity: identity,
-          remoteTarget: { kind: "ssh", host: "offline.example.com", username: "dev", port: 22 },
+          remoteTarget: {
+            kind: "ssh",
+            host: "offline.example.com",
+            username: "dev",
+            port: 22,
+          },
         });
         store.getState().activateTab(localTab.id);
         return localTab.id;
       },
-      DEFAULT_WORKSPACE,
-      REMOTE_IDENTITY,
+      projectPath,
+      remoteIdentity,
     );
 
     const before = await readNavigation();
     facts.before = before;
     expect(before.activeTabId).toBe(localId);
     expect(before.activeWorkspaceIdentity).toBeNull();
-    expect(before.tabs[0]?.workspaceIdentity).toBe(REMOTE_IDENTITY);
+    expect(before.tabs[0]?.workspaceIdentity).toBe(remoteIdentity);
     expect(before.tabs[0]?.remoteSessionId).toBeNull();
     expect(before.tabs[1]?.id).toBe(localId);
 
@@ -123,14 +169,19 @@ describe(`${CASE_MARKER}: 本地项目解除绑定按完整工作区身份匹配
         return (
           state.activeWorkspacePath !== null &&
           state.activeWorkspacePath !== DEFAULT_WORKSPACE &&
+          state.activeWorkspacePath !== projectPath &&
           state.activeWorkspaceIdentity === null &&
           state.tabs.find((tab) => tab.id === state.activeTabId)?.workspacePurpose ===
             "conversation"
         );
       },
-      { timeout: 10_000, timeoutMsg: `${CASE_MARKER}: 点击后没有进入本地 conversation workspace` },
+      {
+        timeout: 10_000,
+        timeoutMsg: `${CASE_MARKER}: 点击后没有进入本地 conversation workspace`,
+      },
     );
     const after = await readNavigation();
+    expect(await readDraftProjectId()).toBeNull();
     // 未归类任务现在准备独立目录；身份隔离不能再绑定退役的 workspace/default 常量。
     expect(dirname(after.activeWorkspacePath!)).toBe(
       join(getE2EAppDataPaths().storageRoot, "workspace"),
@@ -142,8 +193,24 @@ describe(`${CASE_MARKER}: 本地项目解除绑定按完整工作区身份匹配
       "conversation",
     );
     expect(after.tabs.find((tab) => tab.id === localId)).toEqual(before.tabs[1]);
-    expect(after.tabs.find((tab) => tab.workspaceIdentity === REMOTE_IDENTITY)).toEqual(
+    expect(after.tabs.find((tab) => tab.workspaceIdentity === remoteIdentity)).toEqual(
       before.tabs[0],
     );
+
+    await $(`[data-testid="${TID_COMPOSER_WORKSPACE_TRIGGER}"]`).click();
+    await $(`[data-testid="composer-project-menu"] [data-project-name="${projectName}"]`).click();
+    const trigger = $(`[data-testid="${TID_COMPOSER_WORKSPACE_TRIGGER}"]`);
+    await browser.waitUntil(async () => (await trigger.getText()).includes(projectName));
+    expect(await readDraftProjectId()).toBeTruthy();
+    await trigger.moveTo();
+    await $(`[data-testid="${TID_COMPOSER_PROJECT_DETACH}"]`).click();
+    await browser.waitUntil(async () => {
+      const state = await readNavigation();
+      return (
+        state.tabs.find((tab) => tab.id === state.activeTabId)?.workspacePurpose ===
+          "conversation" && !(await trigger.getText()).includes(projectName)
+      );
+    });
+    expect(await readDraftProjectId()).toBeNull();
   });
 });

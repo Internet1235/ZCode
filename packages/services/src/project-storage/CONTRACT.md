@@ -1,5 +1,7 @@
 # project-storage
 
+调用顺序：普通 `/ws` 发布点 → 单次 AsyncLocalStorage scope → 每次 Repository 捕获准入 → SQLite 原事务。Host 发往 CLI 的 pending request 捕获同一 scope；CLI 仅回传当前 dispatch 的 `parentRequestId`，Host 在同一 client 的 pending 表命中时恢复 scope。完成、取消或断连后不再可关联；无关联默认拒绝。运行时偏好等待 UI 应答时只在原 pending 项保存本次恢复函数，实际恢复时再次检查父 pending 项仍为原对象；不按 session、trace 或 workspace 建立授权缓存。协议字段不传递授权布尔值。
+
 Host 项目组织态的持久化升级。调用者持有 app SQLite 连接，CLI 通过协议交接事实，不导入此模块。
 
 `hasProjectWorkspace` 只读取当前 Host 的未删除项目 roots 与 task 项目关联，供 Host 首次分配 CLI 使用；软删除项目的保留任务归属仍算项目工作区。默认任务迁移已清空任务归属，其软删容器的残留 roots 不参与分配。该查询不建立或持久化运行归属，不改 task.cwd，也不在移动任务时触发进程迁移。运行归属由 ProcessManager 保持到原进程退出。
@@ -34,7 +36,7 @@ App 控制创建与普通创建共用 `reserveCreatedTask` 的创建回执：会
 
 ## 2026-10-10 远程单目录合同
 
-本地仍允许 0..n roots；可信 ownerHostId 非 local 的持库宿主只允许恰好一个固定 root。远程创建必须有项目，prepareSession、reserveCreatedTask 与 moveTask 不得产生无归属或附加目录；根路径更新和缺 root 拖动在写事务中拒绝。客户端 hostId 不能改变持库身份。历史迁移数据不被裁剪，失败不得部分写入。
+本地仍允许 0..n roots；可信 ownerHostId 非 local 的项目只允许恰好一个固定 root。外部 attachment 创建必须有项目，prepareSession、reserveCreatedTask 与 moveTask 不得产生无归属或附加目录；根路径更新和缺 root 拖动在写事务中拒绝。普通 Web 直连当前 Source 的无项目 reserve、receipt、fork 和目录恢复由可信发布点的进程内作用域准入；每次新 Repository 捕获本次准入，NULL 仅允许空附加目录。默认拒绝，不信客户端字段，不因已有 runtime 放宽，也不改变项目 roots 约束、Host 一致性、事务和回执幂等。不迁移或重归类旧 NULL 行，CLI 晚期目录请求沿用捕获的可信作用域。
 
 启动入口复用 session 模块公开的旧 Repo 与迁移适配器：先 SQL 迁移并提交，再逐一 ensureReady/close，最后标记 prepared。Worker 必须注入旧 settings 以完成首次项目导入；进度复制迁移事实，失败不撤回已提交计数。storage-startup 子路径保持不变。
 

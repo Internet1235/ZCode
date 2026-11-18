@@ -94,7 +94,11 @@ import type { OpenAutomationsMain } from "@/lib/taskNavigationHistory.js";
 import { WORKSPACE_FILE_DRAG_MIME } from "@/lib/workspaceFileDrag.js";
 import { buildChatSessionScrollMemoryKey } from "@/lib/chatSessionScrollMemory.js";
 import type { MessageFileLinkTarget } from "@/components/ai-elements/message.js";
-import { useServices } from "@/hooks/useServices.js";
+import {
+  isDirectSourceWorkspace,
+  useDirectSourceHostId,
+  useServices,
+} from "@/hooks/useServices.js";
 import { useOptionalPlatform } from "@/hooks/usePlatform.js";
 import { browserGlobalNoticeStore } from "@/global-notice/globalNoticeStore.js";
 import {
@@ -1864,8 +1868,10 @@ export function SessionPane({
 
   // 冷恢复可能先连上远端、后恢复项目归属；此时预热会发出缺 projectId 的创建并反复失败。
   // 直接使用草稿 owner 的归属作为创建前置，选择项目后自然恢复；正式会话和本地未归类不受限。
+  const directSourceHostId = useDirectSourceHostId();
   const draftProjectReady =
     sessionId !== null ||
+    isDirectSourceWorkspace(workspaceIdentity, directSourceHostId) ||
     !isRemoteWorkspaceIdentity(workspaceIdentity ?? "") ||
     Boolean(composerProjectId);
   const draftAgentStartupAllowed =

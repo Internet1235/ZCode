@@ -5,10 +5,24 @@
  */
 import { createContext, useContext, type ReactNode } from "react";
 import type { IServiceAccessor } from "@zcode/services";
+import { remoteHostIdFromWorkspaceIdentity } from "@zcode/shared";
 
 const ServiceContext = createContext<IServiceAccessor | null>(null);
 const ComposerClientNamespaceContext = createContext("desktop");
 const TerminalOwnerContext = createContext<string | undefined>(undefined);
+const DirectSourceHostContext = createContext<string | undefined>(undefined);
+
+/** 普通 Web 的根连接身份只用于选路，服务端仍独立校验调用准入。 */
+export function useDirectSourceHostId(): string | undefined {
+  return useContext(DirectSourceHostContext);
+}
+
+export function isDirectSourceWorkspace(
+  identity: string | null | undefined,
+  hostId: string | undefined,
+): boolean {
+  return Boolean(hostId && identity && remoteHostIdFromWorkspaceIdentity(identity) === hostId);
+}
 
 export function useTerminalOwnerId(): string | undefined {
   return useContext(TerminalOwnerContext);
@@ -24,18 +38,23 @@ export function ServiceProvider({
   children,
   composerClientNamespace,
   terminalOwnerId,
+  directSourceHostId,
 }: {
   services: IServiceAccessor;
   children: ReactNode;
   composerClientNamespace?: string;
   terminalOwnerId?: string;
+  directSourceHostId?: string;
 }) {
   const inheritedNamespace = useComposerClientNamespace();
   const inheritedTerminalOwner = useTerminalOwnerId();
+  const inheritedSourceHost = useDirectSourceHostId();
   return (
     <ComposerClientNamespaceContext.Provider value={composerClientNamespace ?? inheritedNamespace}>
       <TerminalOwnerContext.Provider value={terminalOwnerId ?? inheritedTerminalOwner}>
-        <ServiceContext.Provider value={services}>{children}</ServiceContext.Provider>
+        <DirectSourceHostContext.Provider value={directSourceHostId ?? inheritedSourceHost}>
+          <ServiceContext.Provider value={services}>{children}</ServiceContext.Provider>
+        </DirectSourceHostContext.Provider>
       </TerminalOwnerContext.Provider>
     </ComposerClientNamespaceContext.Provider>
   );
