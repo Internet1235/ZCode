@@ -11,6 +11,7 @@ import { playTaskNotificationSound } from "@zcode/ui";
 import { resolveWebCommunityUrl, resolveWebHelpConfig } from "#src/communityUrl.js";
 import type { WebRemoteControlPlatformProxy } from "#src/platform/contract.js";
 import { saveBrowserFile } from "#src/platform/saveBrowserFile.js";
+import { openFnOSFileManager } from "#src/platform/fnosFileManager.js";
 export type { WebRemoteControlPlatformProxy } from "#src/platform/contract.js";
 
 async function resolveFeedbackUrl(): Promise<string | undefined> {
@@ -137,8 +138,10 @@ export function createWebPlatform(options?: {
       const communityUrl = await resolveWebCommunityUrl(locale);
       return typeof communityUrl === "string" && communityUrl.length > 0;
     },
-    openInFileManager: () =>
-      Promise.resolve({ success: false, error: "Not supported in web mode" }),
+    openInFileManager: (path, scope) =>
+      !platformProxy && scope === "workspace"
+        ? openFnOSFileManager(path)
+        : Promise.resolve({ success: false, error: "Not supported in web mode" }),
     openExternalFile: () => Promise.resolve({ success: false, error: "Not supported in web mode" }),
     registerOAuthState: (_payload) => {},
     onOAuthCallback: () => () => {},
