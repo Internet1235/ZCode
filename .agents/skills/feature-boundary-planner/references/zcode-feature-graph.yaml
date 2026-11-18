@@ -2004,8 +2004,10 @@ nodes:
       - "remote open in editor"
       - "远程文件打开"
       - "在资源管理器中打开"
+      - "fnOS 文件管理器"
     docs:
       - "docs/wsl-open-in-editor.md"
+      - "packages/web/src/platform/CONTRACT.md"
 
   - id: "capability.workspace-file-tree"
     kind: "capability"

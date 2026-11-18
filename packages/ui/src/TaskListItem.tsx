@@ -948,6 +948,7 @@ export function TaskListItemContextMenuContent({
     handleOpenProviderConfig,
   } = useTaskListItemContextActions({
     workspacePath,
+    directoryPath: task.workspacePath,
     remoteSessionId,
     workspaceIdentity: task.workspaceIdentity,
     taskId: task.taskId,

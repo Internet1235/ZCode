@@ -1007,7 +1007,10 @@ export interface IPlatformService {
   canOpenCommunity(locale: Locale): Promise<boolean>;
 
   /** 在系统文件管理器中打开指定路径 */
-  openInFileManager(path: string): Promise<{ success: boolean; error?: string }>;
+  openInFileManager(
+    path: string,
+    scope?: "workspace",
+  ): Promise<{ success: boolean; error?: string }>;
 
   /** 使用系统默认应用打开本地文件；普通 Web 平台返回 unsupported。 */
   openExternalFile?(path: string): Promise<{ success: boolean; error?: string }>;

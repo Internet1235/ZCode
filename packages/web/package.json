@@ -12,6 +12,7 @@
     "lint:fix": "oxlint --fix"
   },
   "dependencies": {
+    "@trimjs/web-app": "0.6.0",
     "@zcode/client": "workspace:*",
     "@zcode/shared": "workspace:*",
     "@zcode/ui": "workspace:*",
